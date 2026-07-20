@@ -2,10 +2,23 @@ const express = require("express");
 const { Op } = require("sequelize");
 const upload = require("../middlewares/uploads");
 const { authenticate, authorize } = require("../middlewares/auth");
-const { BrandCategory, Brand, BrandSocialLink, Coupon } = require("../models");
+const { BrandCategory, Brand, BrandSocialLink, Coupon, UserInterest } = require("../models");
 const { toBool, toNumber } = require("../utils/http");
 
 const router = express.Router();
+
+function uploadUrl(req, image) {
+  const text = String(image || "").trim();
+  if (!text) return null;
+  if (/^https?:\/\//i.test(text)) return text;
+  const baseUrl = (process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+  return `${baseUrl}/uploads/${text}`;
+}
+
+function withImageUrl(req, item) {
+  const json = item.toJSON ? item.toJSON() : item;
+  return { ...json, imageUrl: uploadUrl(req, json.image) };
+}
 
 const brandInclude = [
   { model: BrandCategory, as: "category" },
@@ -36,7 +49,7 @@ router.get("/categories", async (req, res) => {
     where: { isActive: true },
     order: [["sortOrder", "ASC"], ["name", "ASC"]],
   });
-  return res.json({ categories });
+  return res.json({ categories: categories.map((category) => withImageUrl(req, category)) });
 });
 
 router.get("/brands", async (req, res) => {
@@ -50,7 +63,7 @@ router.get("/brands", async (req, res) => {
     include: brandInclude,
     order: [["popularityScore", "DESC"], ["createdAt", "DESC"]],
   });
-  return res.json({ brands });
+  return res.json({ brands: brands.map((brand) => withImageUrl(req, brand)) });
 });
 
 router.get("/brands/:id", async (req, res) => {
@@ -58,7 +71,7 @@ router.get("/brands/:id", async (req, res) => {
     include: [...brandInclude, { model: Coupon, as: "coupons", where: { isActive: true }, required: false }],
   });
   if (!brand || !brand.isActive) return res.status(404).json({ error: "Brand not found" });
-  return res.json({ brand });
+  return res.json({ brand: withImageUrl(req, brand) });
 });
 
 router.get("/admin/categories", authenticate, authorize("admin"), async (req, res) => {
@@ -68,7 +81,7 @@ router.get("/admin/categories", authenticate, authorize("admin"), async (req, re
     where,
     order: [["sortOrder", "ASC"], ["name", "ASC"]],
   });
-  return res.json({ categories });
+  return res.json({ categories: categories.map((category) => withImageUrl(req, category)) });
 });
 
 router.get("/admin/brands", authenticate, authorize("admin"), async (req, res) => {
@@ -81,7 +94,59 @@ router.get("/admin/brands", authenticate, authorize("admin"), async (req, res) =
     include: brandInclude,
     order: [["popularityScore", "DESC"], ["createdAt", "DESC"]],
   });
-  return res.json({ brands });
+  return res.json({ brands: brands.map((brand) => withImageUrl(req, brand)) });
+});
+
+router.get("/interests", authenticate, async (req, res) => {
+  try {
+    const [categories, interests] = await Promise.all([
+      BrandCategory.findAll({
+        where: { isActive: true },
+        order: [["sortOrder", "ASC"], ["name", "ASC"]],
+      }),
+      UserInterest.findAll({ where: { userId: req.user.id } }),
+    ]);
+
+    const selectedCategoryIds = interests.map((item) => item.categoryId);
+    const selected = new Set(selectedCategoryIds);
+
+    return res.json({
+      selectedCategoryIds,
+      categories: categories.map((category) => ({
+        ...withImageUrl(req, category),
+        isSelected: selected.has(category.id),
+      })),
+    });
+  } catch (error) {
+    console.error("Get interests error:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.put("/interests", authenticate, async (req, res) => {
+  try {
+    const categoryIds = Array.isArray(req.body.categoryIds)
+      ? [...new Set(req.body.categoryIds.map((item) => toNumber(item)).filter((item) => item !== null))]
+      : [];
+
+    const activeCategories = await BrandCategory.findAll({
+      where: { id: categoryIds, isActive: true },
+      attributes: ["id"],
+    });
+    const validCategoryIds = activeCategories.map((category) => category.id);
+
+    await UserInterest.destroy({ where: { userId: req.user.id } });
+    if (validCategoryIds.length) {
+      await UserInterest.bulkCreate(
+        validCategoryIds.map((categoryId) => ({ userId: req.user.id, categoryId }))
+      );
+    }
+
+    return res.json({ selectedCategoryIds: validCategoryIds });
+  } catch (error) {
+    console.error("Save interests error:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 router.post("/admin/categories", authenticate, authorize("admin"), upload.single("image"), async (req, res) => {
@@ -97,7 +162,7 @@ router.post("/admin/categories", authenticate, authorize("admin"), upload.single
       sortOrder: toNumber(req.body.sortOrder, 0),
       isActive: toBool(req.body.isActive, true),
     });
-    return res.status(201).json({ category });
+    return res.status(201).json({ category: withImageUrl(req, category) });
   } catch (error) {
     console.error("Create category error:", error);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -117,7 +182,7 @@ router.patch("/admin/categories/:id", authenticate, authorize("admin"), upload.s
     if (req.file) category.image = req.file.filename;
     await category.save();
 
-    return res.json({ category });
+    return res.json({ category: withImageUrl(req, category) });
   } catch (error) {
     console.error("Update category error:", error);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -157,7 +222,7 @@ router.post("/admin/brands", authenticate, authorize("admin"), upload.single("im
     if (links.length) await BrandSocialLink.bulkCreate(links);
 
     const fresh = await Brand.findByPk(brand.id, { include: brandInclude });
-    return res.status(201).json({ brand: fresh });
+    return res.status(201).json({ brand: withImageUrl(req, fresh) });
   } catch (error) {
     console.error("Create brand error:", error);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -204,7 +269,7 @@ router.patch("/admin/brands/:id", authenticate, authorize("admin"), upload.singl
     }
 
     const fresh = await Brand.findByPk(brand.id, { include: brandInclude });
-    return res.json({ brand: fresh });
+    return res.json({ brand: withImageUrl(req, fresh) });
   } catch (error) {
     console.error("Update brand error:", error);
     return res.status(500).json({ error: "Internal Server Error" });

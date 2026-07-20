@@ -16,6 +16,7 @@ const CouponCartItem = require("./coupon_cart_item");
 const CommissionLog = require("./commission_log");
 const FeaturedSection = require("./featured_section");
 const FeaturedBrand = require("./featured_brand");
+const UserInterest = require("./user_interest");
 
 User.hasMany(UserDevice, { foreignKey: "user_id", as: "devices", onDelete: "CASCADE" });
 UserDevice.belongsTo(User, { foreignKey: "user_id", as: "user", onDelete: "CASCADE" });
@@ -32,6 +33,13 @@ AuditLog.belongsTo(User, { foreignKey: "actorId", as: "actor", onDelete: "SET NU
 
 BrandCategory.hasMany(Brand, { foreignKey: "categoryId", as: "brands", onDelete: "SET NULL" });
 Brand.belongsTo(BrandCategory, { foreignKey: "categoryId", as: "category", onDelete: "SET NULL" });
+
+User.belongsToMany(BrandCategory, { through: UserInterest, foreignKey: "userId", otherKey: "categoryId", as: "interestCategories" });
+BrandCategory.belongsToMany(User, { through: UserInterest, foreignKey: "categoryId", otherKey: "userId", as: "interestedUsers" });
+User.hasMany(UserInterest, { foreignKey: "userId", as: "interests", onDelete: "CASCADE" });
+UserInterest.belongsTo(User, { foreignKey: "userId", as: "user", onDelete: "CASCADE" });
+BrandCategory.hasMany(UserInterest, { foreignKey: "categoryId", as: "userInterests", onDelete: "CASCADE" });
+UserInterest.belongsTo(BrandCategory, { foreignKey: "categoryId", as: "category", onDelete: "CASCADE" });
 
 User.hasMany(Brand, { foreignKey: "ownerId", as: "ownedBrands", onDelete: "SET NULL" });
 Brand.belongsTo(User, { foreignKey: "ownerId", as: "owner", onDelete: "SET NULL" });
@@ -92,4 +100,5 @@ module.exports = {
   CommissionLog,
   FeaturedSection,
   FeaturedBrand,
+  UserInterest,
 };
