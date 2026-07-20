@@ -49,7 +49,16 @@ const authLimiter = rateLimit({
   limit: Number(process.env.AUTH_RATE_LIMIT_MAX || 10),
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
   message: { error: "Too many auth attempts, please try again later" },
+});
+
+const registerLimiter = rateLimit({
+  windowMs: Number(process.env.REGISTER_RATE_LIMIT_WINDOW_MS || 60 * 60 * 1000),
+  limit: Number(process.env.REGISTER_RATE_LIMIT_MAX || 20),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many registration attempts, please try again later" },
 });
 
 const adminLimiter = rateLimit({
@@ -60,7 +69,8 @@ const adminLimiter = rateLimit({
   message: { error: "Too many admin requests, please slow down" },
 });
 
-app.use(["/auth/login", "/auth/register", "/login", "/users"], authLimiter);
+app.use(["/auth/login", "/login"], authLimiter);
+app.use(["/auth/register", "/users"], registerLimiter);
 app.use("/admin", adminLimiter);
 
 app.get("/health", (req, res) => res.json({ ok: true, service: "Walk Backend" }));

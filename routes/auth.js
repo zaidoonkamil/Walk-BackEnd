@@ -37,7 +37,11 @@ function adminExpiresAt() {
 }
 
 function normalizePhone(phone) {
-  return String(phone || "").trim().replace(/\s+/g, "");
+  const text = String(phone || "").trim().replace(/\s+/g, "");
+  if (/^964\d{10}$/.test(text)) return text;
+  if (/^0\d{10}$/.test(text)) return `964${text.slice(1)}`;
+  if (/^\d{10}$/.test(text)) return `964${text}`;
+  return text;
 }
 
 function getLockMs(role) {

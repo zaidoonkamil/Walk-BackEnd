@@ -62,7 +62,10 @@ router.get("/brands/:id", async (req, res) => {
 });
 
 router.get("/admin/categories", authenticate, authorize("admin"), async (req, res) => {
+  const where = {};
+  if (req.query.includeInactive !== "true") where.isActive = true;
   const categories = await BrandCategory.findAll({
+    where,
     order: [["sortOrder", "ASC"], ["name", "ASC"]],
   });
   return res.json({ categories });
