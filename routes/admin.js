@@ -24,23 +24,19 @@ function normalizePhone(phone) {
 }
 
 async function authenticateAdminOrBootstrapFirstAdmin(req, res, next) {
-  const authHeader = req.headers.authorization || "";
-  if (authHeader) {
-    return authenticate(req, res, () => authorize("admin")(req, res, next));
-  }
-
   const requestedRole = String(req.body.role || "").trim();
-  if (requestedRole !== "admin") {
-    return res.status(401).json({ error: "Token is required" });
+  if (requestedRole === "admin") {
+    const adminCount = await User.unscoped().count({ where: { role: "admin" } });
+    if (adminCount === 0) {
+      req.bootstrapFirstAdmin = true;
+      return next();
+    }
   }
 
-  const adminCount = await User.unscoped().count({ where: { role: "admin" } });
-  if (adminCount > 0) {
-    return res.status(401).json({ error: "Invalid or expired token" });
-  }
+  const authHeader = req.headers.authorization || "";
+  if (!authHeader) return res.status(401).json({ error: "Token is required" });
 
-  req.bootstrapFirstAdmin = true;
-  return next();
+  return authenticate(req, res, () => authorize("admin")(req, res, next));
 }
 
 router.get("/admin/dashboard", authenticate, authorize("admin"), async (req, res) => {
