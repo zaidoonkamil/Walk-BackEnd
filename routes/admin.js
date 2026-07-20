@@ -23,6 +23,26 @@ function normalizePhone(phone) {
   return String(phone || "").trim().replace(/\s+/g, "");
 }
 
+async function authenticateAdminOrBootstrapFirstAdmin(req, res, next) {
+  const authHeader = req.headers.authorization || "";
+  if (authHeader) {
+    return authenticate(req, res, () => authorize("admin")(req, res, next));
+  }
+
+  const requestedRole = String(req.body.role || "").trim();
+  if (requestedRole !== "admin") {
+    return res.status(401).json({ error: "Token is required" });
+  }
+
+  const adminCount = await User.unscoped().count({ where: { role: "admin" } });
+  if (adminCount > 0) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+
+  req.bootstrapFirstAdmin = true;
+  return next();
+}
+
 router.get("/admin/dashboard", authenticate, authorize("admin"), async (req, res) => {
   const [
     users,
@@ -71,12 +91,16 @@ router.get("/admin/users", authenticate, authorize("admin"), async (req, res) =>
   return res.json({ users });
 });
 
-router.post("/admin/users", authenticate, authorize("admin"), upload.single("image"), async (req, res) => {
+router.post("/admin/users", upload.single("image"), authenticateAdminOrBootstrapFirstAdmin, async (req, res) => {
   try {
     const name = String(req.body.name || "").trim();
     const phone = normalizePhone(req.body.phone);
     const password = String(req.body.password || "");
-    const role = ["user", "admin", "brand_owner"].includes(req.body.role) ? req.body.role : "user";
+    const role = req.bootstrapFirstAdmin
+      ? "admin"
+      : ["user", "admin", "brand_owner"].includes(req.body.role)
+        ? req.body.role
+        : "user";
 
     if (!name || !phone || !password) {
       return res.status(400).json({ error: "name, phone and password are required" });
@@ -97,7 +121,9 @@ router.post("/admin/users", authenticate, authorize("admin"), upload.single("ima
       passwordChangedAt: new Date(),
     });
 
-    await writeAuditLog(req, "admin.user_create", {
+    await writeAuditLog(req, req.bootstrapFirstAdmin ? "admin.bootstrap_first_admin" : "admin.user_create", {
+      actorId: req.bootstrapFirstAdmin ? user.id : undefined,
+      actorRole: req.bootstrapFirstAdmin ? user.role : undefined,
       entityType: "User",
       entityId: user.id,
       metadata: { role },
