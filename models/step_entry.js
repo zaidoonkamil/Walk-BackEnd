@@ -7,6 +7,8 @@ const StepEntry = sequelize.define("StepEntry", {
   date: { type: DataTypes.DATEONLY, allowNull: false },
   steps: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   calories: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+  distanceKm: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+  activeMinutes: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   pointsEarned: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   source: {
     type: DataTypes.ENUM("manual", "pedometer", "google_fit", "healthkit"),
@@ -14,6 +16,7 @@ const StepEntry = sequelize.define("StepEntry", {
     defaultValue: "manual",
   },
   deviceId: { type: DataTypes.STRING, allowNull: true },
+  sourceName: { type: DataTypes.STRING, allowNull: true },
   isTrusted: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   rejectedReason: { type: DataTypes.STRING, allowNull: true },
 }, {

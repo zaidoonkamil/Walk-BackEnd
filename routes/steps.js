@@ -28,6 +28,11 @@ function validateStepPayload({ steps, source, deviceId }) {
   return null;
 }
 
+function weekDayLabel(dateText) {
+  const date = new Date(`${dateText}T12:00:00Z`);
+  return ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"][date.getUTCDay()];
+}
+
 async function refreshUserTotals(user, transaction) {
   const entries = await StepEntry.findAll({
     where: { userId: user.id },
@@ -57,8 +62,11 @@ router.post("/steps", authenticate, async (req, res) => {
     const date = String(req.body.date || todayKey()).slice(0, 10);
     const steps = toNumber(req.body.steps, 0);
     const calories = toNumber(req.body.calories, Number((steps * 0.04).toFixed(2)));
+    const distanceKm = toNumber(req.body.distanceKm, Number((steps * 0.00075).toFixed(2)));
+    const activeMinutes = toNumber(req.body.activeMinutes, Math.round(steps / 100));
     const source = String(req.body.source || "manual").trim();
     const deviceId = req.body.deviceId ? String(req.body.deviceId).trim() : null;
+    const sourceName = req.body.sourceName ? String(req.body.sourceName).trim().slice(0, 120) : null;
     const isTrusted = ["pedometer", "google_fit", "healthkit"].includes(source);
     const rejectedReason = validateStepPayload({ steps, source, deviceId });
 
@@ -88,17 +96,23 @@ router.post("/steps", authenticate, async (req, res) => {
         date,
         steps,
         calories,
+        distanceKm,
+        activeMinutes,
         pointsEarned,
         source,
         deviceId,
+        sourceName,
         isTrusted,
       }, { transaction });
     } else {
       entry.steps = steps;
       entry.calories = calories;
+      entry.distanceKm = distanceKm;
+      entry.activeMinutes = activeMinutes;
       entry.pointsEarned = pointsEarned;
       entry.source = source;
       entry.deviceId = deviceId;
+      entry.sourceName = sourceName;
       entry.isTrusted = isTrusted;
       entry.rejectedReason = null;
       await entry.save({ transaction });
@@ -141,6 +155,34 @@ router.get("/steps/dashboard", authenticate, async (req, res) => {
   });
 
   const todayEntry = entries.find((entry) => entry.date === today) || null;
+  const byDate = new Map(entries.map((entry) => [entry.date, entry]));
+  const days = [];
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const cursor = new Date();
+    cursor.setDate(cursor.getDate() - offset);
+    const date = todayKey(cursor);
+    const entry = byDate.get(date);
+    days.push({
+      date,
+      label: offset === 0 ? "اليوم" : weekDayLabel(date),
+      steps: entry?.steps || 0,
+      calories: entry?.calories || 0,
+      distanceKm: entry?.distanceKm || Number(((entry?.steps || 0) * 0.00075).toFixed(2)),
+      activeMinutes: entry?.activeMinutes || Math.round((entry?.steps || 0) / 100),
+      pointsEarned: entry?.pointsEarned || 0,
+      source: entry?.source || null,
+      sourceName: entry?.sourceName || null,
+      isTrusted: Boolean(entry?.isTrusted),
+    });
+  }
+  const weekTotals = days.reduce((totals, day) => ({
+    steps: totals.steps + day.steps,
+    calories: totals.calories + day.calories,
+    distanceKm: totals.distanceKm + day.distanceKm,
+    activeMinutes: totals.activeMinutes + day.activeMinutes,
+    goalDays: totals.goalDays + (day.steps >= user.dailyStepGoal ? 1 : 0),
+  }), { steps: 0, calories: 0, distanceKm: 0, activeMinutes: 0, goalDays: 0 });
+
   return res.json({
     points: user.points,
     pointsRule: {
@@ -152,8 +194,13 @@ router.get("/steps/dashboard", authenticate, async (req, res) => {
     today: {
       steps: todayEntry?.steps || 0,
       calories: todayEntry?.calories || 0,
+      distanceKm: todayEntry?.distanceKm || Number(((todayEntry?.steps || 0) * 0.00075).toFixed(2)),
+      activeMinutes: todayEntry?.activeMinutes || Math.round((todayEntry?.steps || 0) / 100),
       pointsEarned: todayEntry?.pointsEarned || 0,
       goalProgress: user.dailyStepGoal ? Math.min(1, (todayEntry?.steps || 0) / user.dailyStepGoal) : 0,
+      source: todayEntry?.source || null,
+      sourceName: todayEntry?.sourceName || null,
+      isTrusted: Boolean(todayEntry?.isTrusted),
     },
     totals: {
       steps: user.totalSteps,
@@ -161,7 +208,12 @@ router.get("/steps/dashboard", authenticate, async (req, res) => {
       currentStreakDays: user.currentStreakDays,
       longestStreakDays: user.longestStreakDays,
     },
-    last7Days: entries,
+    weekTotals: {
+      ...weekTotals,
+      distanceKm: Number(weekTotals.distanceKm.toFixed(2)),
+      averageSteps: Math.round(weekTotals.steps / 7),
+    },
+    last7Days: days,
   });
 });
 
