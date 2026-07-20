@@ -67,7 +67,7 @@ router.post("/steps", authenticate, async (req, res) => {
     const source = String(req.body.source || "manual").trim();
     const deviceId = req.body.deviceId ? String(req.body.deviceId).trim() : null;
     const sourceName = req.body.sourceName ? String(req.body.sourceName).trim().slice(0, 120) : null;
-    const isTrusted = ["pedometer", "google_fit", "healthkit"].includes(source);
+    const isTrusted = ["pedometer", "google_fit", "health_connect", "healthkit"].includes(source);
     const rejectedReason = validateStepPayload({ steps, source, deviceId });
 
     if (rejectedReason) return res.status(400).json({ error: rejectedReason });

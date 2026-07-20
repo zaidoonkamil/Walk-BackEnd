@@ -11,7 +11,7 @@ const StepEntry = sequelize.define("StepEntry", {
   activeMinutes: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   pointsEarned: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   source: {
-    type: DataTypes.ENUM("manual", "pedometer", "google_fit", "healthkit"),
+    type: DataTypes.ENUM("manual", "pedometer", "google_fit", "health_connect", "healthkit"),
     allowNull: false,
     defaultValue: "manual",
   },
