@@ -60,7 +60,7 @@ const adminLimiter = rateLimit({
   message: { error: "Too many admin requests, please slow down" },
 });
 
-app.use(["/auth/login", "/auth/register"], authLimiter);
+app.use(["/auth/login", "/auth/register", "/login", "/users"], authLimiter);
 app.use("/admin", adminLimiter);
 
 app.get("/health", (req, res) => res.json({ ok: true, service: "Walk Backend" }));
