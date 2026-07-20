@@ -61,6 +61,26 @@ router.get("/brands/:id", async (req, res) => {
   return res.json({ brand });
 });
 
+router.get("/admin/categories", authenticate, authorize("admin"), async (req, res) => {
+  const categories = await BrandCategory.findAll({
+    order: [["sortOrder", "ASC"], ["name", "ASC"]],
+  });
+  return res.json({ categories });
+});
+
+router.get("/admin/brands", authenticate, authorize("admin"), async (req, res) => {
+  const where = {};
+  if (req.query.categoryId) where.categoryId = req.query.categoryId;
+  if (req.query.q) where.name = { [Op.like]: `%${req.query.q}%` };
+
+  const brands = await Brand.findAll({
+    where,
+    include: brandInclude,
+    order: [["popularityScore", "DESC"], ["createdAt", "DESC"]],
+  });
+  return res.json({ brands });
+});
+
 router.post("/admin/categories", authenticate, authorize("admin"), upload.single("image"), async (req, res) => {
   try {
     const name = String(req.body.name || "").trim();
@@ -77,6 +97,26 @@ router.post("/admin/categories", authenticate, authorize("admin"), upload.single
     return res.status(201).json({ category });
   } catch (error) {
     console.error("Create category error:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.patch("/admin/categories/:id", authenticate, authorize("admin"), upload.single("image"), async (req, res) => {
+  try {
+    const category = await BrandCategory.findByPk(req.params.id);
+    if (!category) return res.status(404).json({ error: "Category not found" });
+
+    ["name", "description", "icon"].forEach((field) => {
+      if (req.body[field] !== undefined) category[field] = req.body[field];
+    });
+    if (req.body.sortOrder !== undefined) category.sortOrder = toNumber(req.body.sortOrder, category.sortOrder);
+    if (req.body.isActive !== undefined) category.isActive = toBool(req.body.isActive, category.isActive);
+    if (req.file) category.image = req.file.filename;
+    await category.save();
+
+    return res.json({ category });
+  } catch (error) {
+    console.error("Update category error:", error);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -166,6 +206,22 @@ router.patch("/admin/brands/:id", authenticate, authorize("admin"), upload.singl
     console.error("Update brand error:", error);
     return res.status(500).json({ error: "Internal Server Error" });
   }
+});
+
+router.delete("/admin/categories/:id", authenticate, authorize("admin"), async (req, res) => {
+  const category = await BrandCategory.findByPk(req.params.id);
+  if (!category) return res.status(404).json({ error: "Category not found" });
+  category.isActive = false;
+  await category.save();
+  return res.json({ message: "Category disabled successfully" });
+});
+
+router.delete("/admin/brands/:id", authenticate, authorize("admin"), async (req, res) => {
+  const brand = await Brand.findByPk(req.params.id);
+  if (!brand) return res.status(404).json({ error: "Brand not found" });
+  brand.isActive = false;
+  await brand.save();
+  return res.json({ message: "Brand disabled successfully" });
 });
 
 router.get("/brand-owner/brands", authenticate, authorize("brand_owner"), async (req, res) => {

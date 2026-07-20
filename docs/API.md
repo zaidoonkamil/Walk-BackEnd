@@ -24,6 +24,14 @@ Security notes:
 
 Multipart fields: `name`, `phone`, `password`, `location`, optional `image`.
 
+### Bootstrap First Admin
+
+`POST /auth/bootstrap-admin`
+
+No token required. Creates the first admin only when there are zero admin users. After that it returns `409`.
+
+Multipart fields: `name`, `phone`, `password`, `location`, optional `image`.
+
 ### Login
 
 `POST /auth/login`

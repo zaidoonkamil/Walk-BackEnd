@@ -93,6 +93,53 @@ router.post("/auth/register", upload.single("image"), async (req, res) => {
   }
 });
 
+router.post("/auth/bootstrap-admin", upload.single("image"), async (req, res) => {
+  try {
+    const adminCount = await User.unscoped().count({ where: { role: "admin" } });
+    if (adminCount > 0) {
+      return res.status(409).json({ error: "Admin bootstrap is already closed" });
+    }
+
+    const name = String(req.body.name || "").trim();
+    const phone = normalizePhone(req.body.phone);
+    const password = String(req.body.password || "");
+    const location = String(req.body.location || "").trim();
+
+    if (!name || !phone || !password || !location) {
+      return res.status(400).json({ error: "name, phone, password and location are required" });
+    }
+
+    const passwordError = validatePasswordStrength(password, "admin");
+    if (passwordError) return res.status(400).json({ error: passwordError });
+
+    const exists = await User.unscoped().findOne({ where: { phone } });
+    if (exists) return res.status(409).json({ error: "Phone number is already registered" });
+
+    const admin = await User.create({
+      name,
+      phone,
+      location,
+      image: req.file?.filename || null,
+      password: await bcrypt.hash(password, 12),
+      passwordChangedAt: new Date(),
+      role: "admin",
+      isVerified: true,
+    });
+
+    await writeAuditLog(req, "auth.bootstrap_admin", {
+      actorId: admin.id,
+      actorRole: admin.role,
+      entityType: "User",
+      entityId: admin.id,
+    });
+
+    return res.status(201).json({ user: publicUser(admin) });
+  } catch (error) {
+    console.error("Bootstrap admin error:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.post("/auth/login", async (req, res) => {
   try {
     const phone = normalizePhone(req.body.phone);
