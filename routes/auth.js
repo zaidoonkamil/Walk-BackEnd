@@ -60,7 +60,7 @@ async function recordFailedLogin(user) {
   await user.save();
 }
 
-router.post("/auth/register", upload.single("image"), async (req, res) => {
+router.post(["/auth/register", "/users"], upload.single("image"), async (req, res) => {
   try {
     const name = String(req.body.name || "").trim();
     const phone = normalizePhone(req.body.phone);
@@ -140,7 +140,7 @@ router.post("/auth/bootstrap-admin", upload.single("image"), async (req, res) =>
   }
 });
 
-router.post("/auth/login", async (req, res) => {
+router.post(["/auth/login", "/login"], async (req, res) => {
   try {
     const phone = normalizePhone(req.body.phone);
     const password = String(req.body.password || "");
