@@ -225,15 +225,33 @@ Returns `code`, `qrPayload`, and `qrCodeDataUrl`.
 
 Optional query: `role`, `q`.
 
+### User Details
+
+`GET /admin/users/:id`
+
+Returns the user, summary stats, recent steps, recent point transactions, recent coupon purchases and owned brands.
+
 ### Create User/Admin/Brand Owner
 
 `POST /admin/users`
 
-Multipart fields: `name`, `phone`, `password`, `role`, optional `location`, `image`.
+Multipart fields: `name`, `phone`, `password`, `role`, optional `location`, `dailyStepGoal`, `isVerified`, `image`.
 
-Allowed roles: `user`, `admin`, `brand_owner`.
+Allowed roles: `user`, `admin`, `brand_owner`, `restaurant`, `delivery`.
 
 Admin and brand owner passwords must be strong.
+
+### Update User
+
+`PATCH /admin/users/:id`
+
+Multipart fields: optional `name`, `phone`, `password`, `role`, `location`, `dailyStepGoal`, `isVerified`, `image`.
+
+### Delete User
+
+`DELETE /admin/users/:id`
+
+Admin only. The current admin cannot delete their own account.
 
 ### Revoke Admin Sessions
 

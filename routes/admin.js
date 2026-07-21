@@ -13,7 +13,7 @@ const {
   PointTransaction,
   AdminSession,
 } = require("../models");
-const { publicUser, toNumber } = require("../utils/http");
+const { publicUser, toNumber, toBool } = require("../utils/http");
 const { validatePasswordStrength } = require("../utils/security");
 const { writeAuditLog } = require("../services/audit");
 
@@ -87,6 +87,36 @@ router.get("/admin/users", authenticate, authorize("admin"), async (req, res) =>
   return res.json({ users });
 });
 
+router.get("/admin/users/:id", authenticate, authorize("admin"), async (req, res) => {
+  const user = await User.findByPk(req.params.id, {
+    attributes: { exclude: ["password"] },
+    include: [
+      { model: StepEntry, as: "stepEntries", separate: true, limit: 30, order: [["date", "DESC"]] },
+      { model: PointTransaction, as: "pointTransactions", separate: true, limit: 30, order: [["createdAt", "DESC"]] },
+      { model: CouponPurchase, as: "couponPurchases", separate: true, limit: 30, order: [["createdAt", "DESC"]] },
+      { model: Brand, as: "ownedBrands" },
+    ],
+  });
+  if (!user) return res.status(404).json({ error: "User not found" });
+
+  const [stepsTotal, couponsTotal, redeemedCoupons, pointTransactionsTotal] = await Promise.all([
+    StepEntry.sum("steps", { where: { userId: user.id } }),
+    CouponPurchase.count({ where: { userId: user.id } }),
+    CouponPurchase.count({ where: { userId: user.id, status: "redeemed" } }),
+    PointTransaction.count({ where: { userId: user.id } }),
+  ]);
+
+  return res.json({
+    user: publicUser(user),
+    stats: {
+      stepsTotal: stepsTotal || 0,
+      couponsTotal,
+      redeemedCoupons,
+      pointTransactionsTotal,
+    },
+  });
+});
+
 router.post("/admin/users", upload.single("image"), authenticateAdminOrBootstrapFirstAdmin, async (req, res) => {
   try {
     const name = String(req.body.name || "").trim();
@@ -130,6 +160,78 @@ router.post("/admin/users", upload.single("image"), authenticateAdminOrBootstrap
     console.error("Admin create user error:", error);
     return res.status(500).json({ error: "Internal Server Error" });
   }
+});
+
+router.patch("/admin/users/:id", upload.single("image"), authenticate, authorize("admin"), async (req, res) => {
+  try {
+    const user = await User.unscoped().findByPk(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const nextRole = req.body.role === undefined ? user.role : String(req.body.role || "").trim();
+    if (!["user", "admin", "brand_owner", "restaurant", "delivery"].includes(nextRole)) {
+      return res.status(400).json({ error: "Invalid role" });
+    }
+
+    if (req.user.id === user.id && nextRole !== "admin") {
+      return res.status(400).json({ error: "You cannot remove admin role from your own account" });
+    }
+
+    const phone = req.body.phone === undefined ? user.phone : normalizePhone(req.body.phone);
+    if (!phone) return res.status(400).json({ error: "phone is required" });
+
+    const existing = await User.unscoped().findOne({
+      where: { phone, id: { [Op.ne]: user.id } },
+    });
+    if (existing) return res.status(409).json({ error: "Phone number already exists" });
+
+    if (req.body.name !== undefined) user.name = String(req.body.name || "").trim() || user.name;
+    user.phone = phone;
+    user.role = nextRole;
+    if (req.body.location !== undefined) user.location = req.body.location || null;
+    if (req.body.language !== undefined) user.language = req.body.language || user.language;
+    if (req.body.dailyStepGoal !== undefined) {
+      user.dailyStepGoal = toNumber(req.body.dailyStepGoal, user.dailyStepGoal);
+    }
+    if (req.body.isVerified !== undefined) {
+      user.isVerified = toBool(req.body.isVerified, user.isVerified);
+    }
+    if (req.file?.filename) user.image = req.file.filename;
+
+    if (req.body.password !== undefined && String(req.body.password || "").trim()) {
+      const password = String(req.body.password || "");
+      const passwordError = validatePasswordStrength(password, nextRole);
+      if (passwordError) return res.status(400).json({ error: passwordError });
+      user.password = await bcrypt.hash(password, 10);
+      user.passwordChangedAt = new Date();
+    }
+
+    await user.save();
+    await writeAuditLog(req, "admin.user_update", {
+      entityType: "User",
+      entityId: user.id,
+      metadata: { role: user.role },
+    });
+
+    return res.json({ user: publicUser(user) });
+  } catch (error) {
+    console.error("Admin update user error:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.delete("/admin/users/:id", authenticate, authorize("admin"), async (req, res) => {
+  const user = await User.findByPk(req.params.id);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  if (req.user.id === user.id) {
+    return res.status(400).json({ error: "You cannot delete your own account" });
+  }
+  await user.destroy();
+  await writeAuditLog(req, "admin.user_delete", {
+    entityType: "User",
+    entityId: user.id,
+    metadata: { role: user.role },
+  });
+  return res.json({ message: "User deleted" });
 });
 
 router.patch("/admin/users/:id/points", authenticate, authorize("admin"), async (req, res) => {
