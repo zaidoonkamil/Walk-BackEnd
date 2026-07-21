@@ -58,10 +58,11 @@ router.post("/admin/featured-sections/:id/brands", authenticate, authorize("admi
   const brand = await Brand.findByPk(req.body.brandId);
   if (!section || !brand) return res.status(404).json({ error: "Section or brand not found" });
 
-  const item = await FeaturedBrand.create({
-    sectionId: section.id,
-    brandId: brand.id,
-    sortOrder: toNumber(req.body.sortOrder, 0),
+  const [item] = await FeaturedBrand.findOrCreate({
+    where: { sectionId: section.id, brandId: brand.id },
+    defaults: {
+      sortOrder: toNumber(req.body.sortOrder, 0),
+    },
   });
   return res.status(201).json({ item });
 });
