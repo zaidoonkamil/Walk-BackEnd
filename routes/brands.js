@@ -17,13 +17,18 @@ function uploadUrl(req, image) {
 
 function withImageUrl(req, item) {
   const json = item.toJSON ? item.toJSON() : item;
-  return { ...json, imageUrl: uploadUrl(req, json.image) };
+  const socialLinks = Array.isArray(json.socialLinks)
+    ? json.socialLinks.filter((link) => SOCIAL_PLATFORMS.has(String(link.platform || "").toLowerCase()) && link.url)
+    : [];
+  return { ...json, socialLinks, imageUrl: uploadUrl(req, json.image) };
 }
 
 const brandInclude = [
   { model: BrandCategory, as: "category" },
   { model: BrandSocialLink, as: "socialLinks" },
 ];
+
+const SOCIAL_PLATFORMS = new Set(["facebook", "instagram", "tiktok", "whatsapp"]);
 
 function parseSocialLinks(body) {
   if (!body.socialLinks) return [];
@@ -34,6 +39,15 @@ function parseSocialLinks(body) {
   } catch (error) {
     return [];
   }
+}
+
+function sanitizeSocialLinks(body) {
+  return parseSocialLinks(body)
+    .map((link) => ({
+      platform: String(link.platform || "").trim().toLowerCase(),
+      url: String(link.url || "").trim(),
+    }))
+    .filter((link) => SOCIAL_PLATFORMS.has(link.platform) && link.url);
 }
 
 function validateCoordinates(latitude, longitude) {
@@ -216,8 +230,7 @@ router.post("/admin/brands", authenticate, authorize("admin"), upload.single("im
       popularityScore: toNumber(req.body.popularityScore, 0),
     });
 
-    const links = parseSocialLinks(req.body)
-      .filter((link) => link.platform && link.url)
+    const links = sanitizeSocialLinks(req.body)
       .map((link) => ({ brandId: brand.id, platform: link.platform, url: link.url }));
     if (links.length) await BrandSocialLink.bulkCreate(links);
 
@@ -262,8 +275,7 @@ router.patch("/admin/brands/:id", authenticate, authorize("admin"), upload.singl
 
     if (req.body.socialLinks !== undefined) {
       await BrandSocialLink.destroy({ where: { brandId: brand.id } });
-      const links = parseSocialLinks(req.body)
-        .filter((link) => link.platform && link.url)
+      const links = sanitizeSocialLinks(req.body)
         .map((link) => ({ brandId: brand.id, platform: link.platform, url: link.url }));
       if (links.length) await BrandSocialLink.bulkCreate(links);
     }
@@ -313,7 +325,15 @@ router.patch("/brand-owner/brands/:id", authenticate, authorize("brand_owner"), 
   if (req.file) brand.image = req.file.filename;
   await brand.save();
 
-  return res.json({ brand });
+  if (req.body.socialLinks !== undefined) {
+    await BrandSocialLink.destroy({ where: { brandId: brand.id } });
+    const links = sanitizeSocialLinks(req.body)
+      .map((link) => ({ brandId: brand.id, platform: link.platform, url: link.url }));
+    if (links.length) await BrandSocialLink.bulkCreate(links);
+  }
+
+  const fresh = await Brand.findByPk(brand.id, { include: brandInclude });
+  return res.json({ brand: withImageUrl(req, fresh) });
 });
 
 module.exports = router;
