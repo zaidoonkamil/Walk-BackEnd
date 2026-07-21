@@ -46,9 +46,7 @@ router.patch("/admin/featured-sections/:id", authenticate, authorize("admin"), a
   const section = await FeaturedSection.findByPk(req.params.id);
   if (!section) return res.status(404).json({ error: "Section not found" });
 
-  ["key", "title"].forEach((field) => {
-    if (req.body[field] !== undefined) section[field] = req.body[field];
-  });
+  if (req.body.title !== undefined) section.title = req.body.title;
   if (req.body.sortOrder !== undefined) section.sortOrder = toNumber(req.body.sortOrder, section.sortOrder);
   if (req.body.isActive !== undefined) section.isActive = toBool(req.body.isActive, section.isActive);
   await section.save();
