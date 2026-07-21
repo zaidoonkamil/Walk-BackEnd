@@ -1,8 +1,11 @@
 const express = require("express");
+const bcrypt = require("bcrypt");
+const { Op } = require("sequelize");
 const upload = require("../middlewares/uploads");
 const { User, StepEntry, CouponPurchase, Coupon, Brand } = require("../models");
 const { authenticate } = require("../middlewares/auth");
 const { publicUser, toNumber } = require("../utils/http");
+const { validatePasswordStrength } = require("../utils/security");
 
 const router = express.Router();
 
@@ -34,6 +37,25 @@ router.patch("/profile", authenticate, upload.single("image"), async (req, res) 
     fields.forEach((field) => {
       if (req.body[field] !== undefined) user[field] = String(req.body[field]).trim();
     });
+
+    if (req.body.phone !== undefined) {
+      const phone = String(req.body.phone || "").trim();
+      if (!phone) return res.status(400).json({ error: "phone is required" });
+      const exists = await User.unscoped().findOne({
+        where: { phone, id: { [Op.ne]: user.id } },
+      });
+      if (exists) return res.status(409).json({ error: "Phone already exists" });
+      user.phone = phone;
+    }
+
+    if (req.body.password !== undefined && String(req.body.password || "").trim()) {
+      const password = String(req.body.password || "");
+      const passwordError = validatePasswordStrength(password, user.role);
+      if (passwordError) return res.status(400).json({ error: passwordError });
+      user.password = await bcrypt.hash(password, 10);
+      user.passwordChangedAt = new Date();
+    }
+
     if (req.body.dailyStepGoal !== undefined) {
       user.dailyStepGoal = toNumber(req.body.dailyStepGoal, user.dailyStepGoal);
     }
