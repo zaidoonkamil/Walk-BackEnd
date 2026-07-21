@@ -21,11 +21,18 @@ function uploadUrl(req, image) {
   return `${baseUrl}/uploads/${text}`;
 }
 
+function cleanLinkUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  return /^https?:\/\//i.test(text) ? text : `https://${text}`;
+}
+
 function serializeAd(req, ad) {
   const json = ad.toJSON ? ad.toJSON() : ad;
   const images = Array.isArray(json.images) ? json.images : [];
   return {
     ...json,
+    linkUrl: json.linkUrl || null,
     imageUrls: images.map((image) => uploadUrl(req, image)).filter(Boolean),
   };
 }
@@ -41,6 +48,7 @@ router.post("/ads", authenticate, authorize("admin"), upload.array("images", 5),
       images,
       type: cleanEnum(req.body.type, TYPES, "main"),
       placement: cleanEnum(req.body.placement, PLACEMENTS, "all"),
+      linkUrl: cleanLinkUrl(req.body.linkUrl || req.body.link || req.body.url),
       isActive: req.body.isActive === undefined ? true : req.body.isActive === "true" || req.body.isActive === true,
       sortOrder: Number(req.body.sortOrder || 0),
     });

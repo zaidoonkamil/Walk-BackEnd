@@ -119,6 +119,18 @@ To recalculate old stored step entries after changing the rule, run `npm run rec
 
 ## Brands
 
+## Ads
+
+`GET /ads`
+
+Optional query: `type`, `placement`, `includeInactive=true`.
+
+Each ad returns `imageUrls` and optional `linkUrl`. If `linkUrl` exists, the mobile app opens it when the user taps the ad.
+
+`POST /ads`
+
+Admin multipart fields: `images`, `type`, `placement`, optional `linkUrl`.
+
 ### Categories
 
 `GET /categories`

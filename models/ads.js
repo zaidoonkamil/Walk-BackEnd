@@ -16,6 +16,10 @@ const Ads = sequelize.define("ads", {
         allowNull: false,
         defaultValue: "all"
       },
+    linkUrl: {
+        type: DataTypes.STRING,
+        allowNull: true
+      },
     isActive: {
         type: DataTypes.BOOLEAN,
         allowNull: false,
