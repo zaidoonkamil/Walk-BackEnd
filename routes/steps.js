@@ -19,7 +19,7 @@ function calculatePoints(steps) {
 
 function validateStepPayload({ steps, source, deviceId }) {
   const maxDailySteps = Number(process.env.MAX_DAILY_STEPS || 50000);
-  const trustedSources = ["pedometer", "google_fit", "healthkit"];
+  const trustedSources = ["pedometer", "google_fit", "health_connect", "healthkit"];
 
   if (steps < 0) return "steps must be positive";
   if (steps > maxDailySteps) return `steps exceeds daily limit of ${maxDailySteps}`;
@@ -31,6 +31,92 @@ function validateStepPayload({ steps, source, deviceId }) {
 function weekDayLabel(dateText) {
   const date = new Date(`${dateText}T12:00:00Z`);
   return ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"][date.getUTCDay()];
+}
+
+function buildAchievement({ id, title, description, target, progress, unit, color, icon }) {
+  const safeTarget = Math.max(1, Number(target || 1));
+  const safeProgress = Math.max(0, Math.floor(Number(progress || 0)));
+  return {
+    id,
+    title,
+    description,
+    target: safeTarget,
+    progress: safeProgress,
+    unit,
+    percent: Math.min(1, Number((safeProgress / safeTarget).toFixed(4))),
+    unlocked: safeProgress >= safeTarget,
+    color,
+    icon,
+  };
+}
+
+function buildAchievements({ user, todayEntry, weekTotals }) {
+  const todaySteps = todayEntry?.steps || 0;
+  const todayCalories = Math.round(todayEntry?.calories || 0);
+  const todayDistanceMeters = Math.round((todayEntry?.distanceKm || 0) * 1000);
+
+  return [
+    buildAchievement({
+      id: "daily_10k",
+      title: "10K خطوة",
+      description: "حقق 10,000 خطوة بيوم واحد",
+      target: 10000,
+      progress: todaySteps,
+      unit: "خطوة",
+      color: "#7B61FF",
+      icon: "cup",
+    }),
+    buildAchievement({
+      id: "daily_calories_500",
+      title: "500 كالوري",
+      description: "احرق 500 كالوري خلال اليوم",
+      target: 500,
+      progress: todayCalories,
+      unit: "كالوري",
+      color: "#F2A51E",
+      icon: "medal_star",
+    }),
+    buildAchievement({
+      id: "active_week",
+      title: "أسبوع نشط",
+      description: "حقق هدفك في 5 أيام خلال آخر أسبوع",
+      target: 5,
+      progress: weekTotals.goalDays,
+      unit: "أيام",
+      color: "#27B66F",
+      icon: "calendar_tick",
+    }),
+    buildAchievement({
+      id: "monthly_25k",
+      title: "25K خطوة",
+      description: "اجمع 25,000 خطوة بالمجموع",
+      target: 25000,
+      progress: user.totalSteps,
+      unit: "خطوة",
+      color: "#2F8BE8",
+      icon: "award",
+    }),
+    buildAchievement({
+      id: "first_points_100",
+      title: "100 نقطة",
+      description: "اجمع أول 100 نقطة من المشي",
+      target: 100,
+      progress: user.points,
+      unit: "نقطة",
+      color: "#9B59B6",
+      icon: "star",
+    }),
+    buildAchievement({
+      id: "daily_distance_5k",
+      title: "5 كم",
+      description: "امش 5 كم خلال اليوم",
+      target: 5000,
+      progress: todayDistanceMeters,
+      unit: "متر",
+      color: "#32C7B5",
+      icon: "route",
+    }),
+  ];
 }
 
 async function refreshUserTotals(user, transaction) {
@@ -214,6 +300,7 @@ router.get("/steps/dashboard", authenticate, async (req, res) => {
       averageSteps: Math.round(weekTotals.steps / 7),
     },
     last7Days: days,
+    achievements: buildAchievements({ user, todayEntry, weekTotals }),
   });
 });
 
