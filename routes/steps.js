@@ -6,19 +6,30 @@ const { authenticate } = require("../middlewares/auth");
 const { toNumber } = require("../utils/http");
 
 const router = express.Router();
+const DEFAULT_STEPS_PER_POINT = 5000;
+const DEFAULT_IQD_PER_POINT = 1000;
+const DEFAULT_MAX_DAILY_STEPS = 50000;
 
 function todayKey(date = new Date()) {
   return date.toISOString().slice(0, 10);
 }
 
+function stepsRule() {
+  const stepsPerPoint = Number(process.env.STEPS_PER_POINT || DEFAULT_STEPS_PER_POINT);
+  const iqdPerPoint = Number(process.env.IQD_PER_POINT || DEFAULT_IQD_PER_POINT);
+  const maxDailySteps = Number(process.env.MAX_DAILY_STEPS || DEFAULT_MAX_DAILY_STEPS);
+  const defaultDailyPointsLimit = Math.floor(maxDailySteps / Math.max(1, stepsPerPoint));
+  const dailyPointsLimit = Number(process.env.DAILY_POINTS_LIMIT || defaultDailyPointsLimit);
+  return { stepsPerPoint, iqdPerPoint, maxDailySteps, dailyPointsLimit };
+}
+
 function calculatePoints(steps) {
-  const stepsPerPoint = Number(process.env.STEPS_PER_POINT || 100);
-  const dailyPointsLimit = Number(process.env.DAILY_POINTS_LIMIT || 200);
+  const { stepsPerPoint, dailyPointsLimit } = stepsRule();
   return Math.min(dailyPointsLimit, Math.floor(Math.max(0, steps) / stepsPerPoint));
 }
 
 function validateStepPayload({ steps, source, deviceId }) {
-  const maxDailySteps = Number(process.env.MAX_DAILY_STEPS || 50000);
+  const { maxDailySteps } = stepsRule();
   const trustedSources = ["pedometer", "google_fit", "health_connect", "healthkit"];
 
   if (steps < 0) return "steps must be positive";
@@ -227,6 +238,7 @@ router.post("/steps", authenticate, async (req, res) => {
 router.get("/steps/dashboard", authenticate, async (req, res) => {
   const user = await User.findByPk(req.user.id);
   if (!user) return res.status(404).json({ error: "User not found" });
+  const rule = stepsRule();
 
   const today = todayKey();
   const weekStart = new Date();
@@ -256,6 +268,7 @@ router.get("/steps/dashboard", authenticate, async (req, res) => {
       distanceKm: entry?.distanceKm || Number(((entry?.steps || 0) * 0.00075).toFixed(2)),
       activeMinutes: entry?.activeMinutes || Math.round((entry?.steps || 0) / 100),
       pointsEarned: entry?.pointsEarned || 0,
+      iqdEarned: (entry?.pointsEarned || 0) * rule.iqdPerPoint,
       source: entry?.source || null,
       sourceName: entry?.sourceName || null,
       isTrusted: Boolean(entry?.isTrusted),
@@ -272,9 +285,10 @@ router.get("/steps/dashboard", authenticate, async (req, res) => {
   return res.json({
     points: user.points,
     pointsRule: {
-      stepsPerPoint: Number(process.env.STEPS_PER_POINT || 100),
-      dailyPointsLimit: Number(process.env.DAILY_POINTS_LIMIT || 200),
-      maxDailySteps: Number(process.env.MAX_DAILY_STEPS || 50000),
+      stepsPerPoint: rule.stepsPerPoint,
+      iqdPerPoint: rule.iqdPerPoint,
+      dailyPointsLimit: rule.dailyPointsLimit,
+      maxDailySteps: rule.maxDailySteps,
     },
     dailyGoal: user.dailyStepGoal,
     today: {
@@ -283,6 +297,7 @@ router.get("/steps/dashboard", authenticate, async (req, res) => {
       distanceKm: todayEntry?.distanceKm || Number(((todayEntry?.steps || 0) * 0.00075).toFixed(2)),
       activeMinutes: todayEntry?.activeMinutes || Math.round((todayEntry?.steps || 0) / 100),
       pointsEarned: todayEntry?.pointsEarned || 0,
+      iqdEarned: (todayEntry?.pointsEarned || 0) * rule.iqdPerPoint,
       goalProgress: user.dailyStepGoal ? Math.min(1, (todayEntry?.steps || 0) / user.dailyStepGoal) : 0,
       source: todayEntry?.source || null,
       sourceName: todayEntry?.sourceName || null,

@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "seed:first-admin": "node migrations/create-first-admin.js"
+    "seed:first-admin": "node migrations/create-first-admin.js",
+    "recalculate:step-points": "node migrations/recalculate-step-points.js"
   },
   "dependencies": {
     "axios": "^1.7.9",

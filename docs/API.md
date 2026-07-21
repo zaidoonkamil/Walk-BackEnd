@@ -82,8 +82,9 @@ Multipart fields: `name`, `location`, `language`, `dailyStepGoal`, `facebookUrl`
 
 Points settings come from `.env`:
 
-- `STEPS_PER_POINT`, default `100`
-- `DAILY_POINTS_LIMIT`, default `200`
+- `STEPS_PER_POINT`, default `5000`
+- `IQD_PER_POINT`, default `1000`
+- `DAILY_POINTS_LIMIT`, default `10`
 - `MAX_DAILY_STEPS`, default `50000`
 
 ### Save Daily Steps
@@ -111,6 +112,10 @@ Trusted sources `pedometer`, `google_fit`, `healthkit` require `deviceId`.
 `GET /steps/dashboard`
 
 Returns today stats, points rule, totals, streak and last 7 days.
+
+Points rule: `5000` steps = `1000` IQD = `1` point. The dashboard returns `pointsRule.iqdPerPoint` and `iqdEarned` for today and each day.
+
+To recalculate old stored step entries after changing the rule, run `npm run recalculate:step-points` for a dry run, then run it with `APPLY_STEP_POINTS_RECALC=true` to apply.
 
 ## Brands
 
@@ -237,7 +242,7 @@ Returns the user, summary stats, recent steps, recent point transactions, recent
 
 Multipart fields: `name`, `phone`, `password`, `role`, optional `location`, `dailyStepGoal`, `isVerified`, `image`.
 
-Allowed roles: `user`, `admin`, `brand_owner`, `restaurant`, `delivery`.
+Allowed roles: `user`, `admin`, `brand_owner`.
 
 Admin and brand owner passwords must be strong.
 

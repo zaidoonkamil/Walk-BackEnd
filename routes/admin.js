@@ -168,7 +168,7 @@ router.patch("/admin/users/:id", upload.single("image"), authenticate, authorize
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const nextRole = req.body.role === undefined ? user.role : String(req.body.role || "").trim();
-    if (!["user", "admin", "brand_owner", "restaurant", "delivery"].includes(nextRole)) {
+    if (!["user", "admin", "brand_owner"].includes(nextRole)) {
       return res.status(400).json({ error: "Invalid role" });
     }
 
