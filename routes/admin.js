@@ -1,6 +1,6 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
-const { Op } = require("sequelize");
+const { Op, fn, col } = require("sequelize");
 const { authenticate, authorize } = require("../middlewares/auth");
 const upload = require("../middlewares/uploads");
 const {
@@ -21,6 +21,30 @@ const router = express.Router();
 
 function normalizePhone(phone) {
   return String(phone || "").trim().replace(/\s+/g, "");
+}
+
+function dateRangeWhere(query, field = "createdAt") {
+  const where = {};
+  const range = {};
+  if (query.from) range[Op.gte] = new Date(query.from);
+  if (query.to) {
+    const end = new Date(query.to);
+    end.setHours(23, 59, 59, 999);
+    range[Op.lte] = end;
+  }
+  if (Object.keys(range).length) where[field] = range;
+  return where;
+}
+
+function dateOnlyRangeWhere(query) {
+  const range = {};
+  if (query.from) range[Op.gte] = String(query.from).slice(0, 10);
+  if (query.to) range[Op.lte] = String(query.to).slice(0, 10);
+  return Object.keys(range).length ? { date: range } : {};
+}
+
+function asNumber(value) {
+  return Number(value || 0);
 }
 
 async function authenticateAdminOrBootstrapFirstAdmin(req, res, next) {
@@ -66,6 +90,129 @@ router.get("/admin/dashboard", authenticate, authorize("admin"), async (req, res
     redeemedCoupons,
     totalSteps: steps || 0,
     totalCommission: commissions || 0,
+  });
+});
+
+router.get("/admin/reports", authenticate, authorize("admin"), async (req, res) => {
+  const createdWhere = dateRangeWhere(req.query);
+  const stepWhere = dateOnlyRangeWhere(req.query);
+
+  const [
+    usersTotal,
+    usersByRole,
+    brandsTotal,
+    activeBrands,
+    couponsTotal,
+    activeCoupons,
+    purchasesTotal,
+    purchasesByStatus,
+    pointsSpent,
+    commissionTotal,
+    stepsTotal,
+    caloriesTotal,
+    distanceTotal,
+    activeMinutesTotal,
+    pointsEarned,
+    pointsByType,
+    topBrands,
+    recentPurchases,
+    recentCommissions,
+    recentPointTransactions,
+  ] = await Promise.all([
+    User.count(),
+    User.findAll({
+      attributes: ["role", [fn("COUNT", col("id")), "count"]],
+      group: ["role"],
+      raw: true,
+    }),
+    Brand.count(),
+    Brand.count({ where: { isActive: true } }),
+    Coupon.count(),
+    Coupon.count({ where: { isActive: true } }),
+    CouponPurchase.count({ where: createdWhere }),
+    CouponPurchase.findAll({
+      attributes: ["status", [fn("COUNT", col("id")), "count"]],
+      where: createdWhere,
+      group: ["status"],
+      raw: true,
+    }),
+    CouponPurchase.sum("pointsSpent", { where: createdWhere }),
+    CommissionLog.sum("amount", { where: createdWhere }),
+    StepEntry.sum("steps", { where: stepWhere }),
+    StepEntry.sum("calories", { where: stepWhere }),
+    StepEntry.sum("distanceKm", { where: stepWhere }),
+    StepEntry.sum("activeMinutes", { where: stepWhere }),
+    StepEntry.sum("pointsEarned", { where: stepWhere }),
+    PointTransaction.findAll({
+      attributes: ["type", [fn("SUM", col("points")), "points"]],
+      where: createdWhere,
+      group: ["type"],
+      raw: true,
+    }),
+    CouponPurchase.findAll({
+      attributes: [
+        "brandId",
+        [fn("COUNT", col("CouponPurchase.id")), "purchases"],
+        [fn("SUM", col("pointsSpent")), "pointsSpent"],
+        [fn("SUM", col("commissionAmount")), "commission"],
+      ],
+      where: createdWhere,
+      include: [{ model: Brand, as: "brand", attributes: ["id", "name"] }],
+      group: ["brandId", "brand.id", "brand.name"],
+      order: [[fn("COUNT", col("CouponPurchase.id")), "DESC"]],
+      limit: 10,
+    }),
+    CouponPurchase.findAll({
+      where: createdWhere,
+      include: [
+        { model: User, as: "user", attributes: ["id", "name", "phone"] },
+        { model: Brand, as: "brand", attributes: ["id", "name"] },
+        { model: Coupon, as: "coupon", attributes: ["id", "title"] },
+      ],
+      order: [["createdAt", "DESC"]],
+      limit: 20,
+    }),
+    CommissionLog.findAll({
+      where: createdWhere,
+      include: [{ model: Brand, as: "brand", attributes: ["id", "name"] }],
+      order: [["createdAt", "DESC"]],
+      limit: 20,
+    }),
+    PointTransaction.findAll({
+      where: createdWhere,
+      include: [{ model: User, as: "user", attributes: ["id", "name", "phone"] }],
+      order: [["createdAt", "DESC"]],
+      limit: 20,
+    }),
+  ]);
+
+  return res.json({
+    filters: {
+      from: req.query.from || null,
+      to: req.query.to || null,
+    },
+    summary: {
+      usersTotal,
+      usersByRole,
+      brandsTotal,
+      activeBrands,
+      couponsTotal,
+      activeCoupons,
+      purchasesTotal,
+      purchasesByStatus,
+      pointsSpent: asNumber(pointsSpent),
+      commissionTotal: asNumber(commissionTotal),
+      stepsTotal: asNumber(stepsTotal),
+      caloriesTotal: asNumber(caloriesTotal),
+      distanceTotal: asNumber(distanceTotal),
+      activeMinutesTotal: asNumber(activeMinutesTotal),
+      pointsEarned: asNumber(pointsEarned),
+      pointsByType,
+    },
+    topBrands,
+    recentPurchases,
+    recentCommissions,
+    recentPointTransactions,
   });
 });
 

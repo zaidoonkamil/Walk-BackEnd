@@ -224,6 +224,14 @@ Returns `code`, `qrPayload`, and `qrCodeDataUrl`.
 
 `GET /admin/dashboard`
 
+### Reports
+
+`GET /admin/reports`
+
+Optional query: `from`, `to` as `YYYY-MM-DD`.
+
+Returns detailed totals for money, commissions, points, steps, calories, distance, users, brands, coupons, top brands, recent coupon purchases, recent commissions and recent point transactions.
+
 ### Users
 
 `GET /admin/users`
