@@ -89,14 +89,24 @@ router.post("/notification", authenticate, authorize("admin"), upload.none(), as
   }
 });
 
-router.get("/notifications-log", authenticate, authorize("admin"), async (req, res) => {
+router.get("/notifications-log", authenticate, async (req, res) => {
   const { role, user_id, page = 1, limit = 20 } = req.query;
 
   try {
+    const isAdmin = req.user.role === "admin";
     const orConditions = [{ target_type: "all" }];
 
-    if (role) orConditions.push({ target_type: "role", target_value: role });
-    if (user_id) orConditions.push({ target_type: "user", target_value: user_id.toString() });
+    if (isAdmin) {
+      if (role) orConditions.push({ target_type: "role", target_value: role });
+      if (user_id) {
+        orConditions.push({ target_type: "user", target_value: user_id.toString() });
+        orConditions.push({ user_id: Number(user_id) });
+      }
+    } else {
+      orConditions.push({ target_type: "role", target_value: req.user.role });
+      orConditions.push({ target_type: "user", target_value: req.user.id.toString() });
+      orConditions.push({ user_id: req.user.id });
+    }
 
     const offset = (Number(page) - 1) * Number(limit);
 
