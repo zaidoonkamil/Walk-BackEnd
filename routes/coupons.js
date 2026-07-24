@@ -98,7 +98,9 @@ async function createCoupon(req, res, forcedOwnerId = null) {
     if (!title) return res.status(400).json({ error: "Coupon title is required" });
 
     const discountValue = toNumber(req.body.discountValue, 0);
-    const pointsCost = toNumber(req.body.pointsCost, 0);
+    const pointsCost = forcedOwnerId
+      ? toNumber(req.body.pointsCost, toNumber(process.env.DEFAULT_BRAND_COUPON_POINTS_COST, 1))
+      : toNumber(req.body.pointsCost, 0);
     if (discountValue <= 0) return res.status(400).json({ error: "Coupon discount value must be greater than zero" });
     if (pointsCost <= 0) return res.status(400).json({ error: "Coupon points cost must be greater than zero" });
 
