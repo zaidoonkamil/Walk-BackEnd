@@ -117,6 +117,41 @@ async function resolveBrandOwner(req, name, fallbackLocation) {
   return owner.id;
 }
 
+function generatedBrandPhone(brandId) {
+  return `brand-${brandId}`;
+}
+
+async function createOwnerForBrand(brand, password) {
+  const desiredPhone = normalizePhone(brand.phone) || generatedBrandPhone(brand.id);
+  let phone = desiredPhone;
+  const existing = await User.unscoped().findOne({ where: { phone } });
+  if (existing) {
+    if (existing.role === "brand") {
+      existing.password = await bcrypt.hash(password, 10);
+      existing.passwordChangedAt = new Date();
+      await existing.save();
+      return existing;
+    }
+    phone = generatedBrandPhone(brand.id);
+  }
+
+  let suffix = 0;
+  while (await User.unscoped().findOne({ where: { phone } })) {
+    suffix += 1;
+    phone = `${generatedBrandPhone(brand.id)}-${suffix}`;
+  }
+
+  return User.create({
+    name: brand.name,
+    phone,
+    role: "brand",
+    location: brand.locationText || null,
+    password: await bcrypt.hash(password, 10),
+    passwordChangedAt: new Date(),
+    isVerified: true,
+  });
+}
+
 router.get("/categories", async (req, res) => {
   const categories = await BrandCategory.findAll({
     where: { isActive: true },
@@ -355,22 +390,29 @@ router.patch("/admin/brands/:id", authenticate, authorize("admin"), upload.singl
 
 router.patch("/admin/brands/:id/owner-password", authenticate, authorize("admin"), async (req, res) => {
   try {
-    const brand = await Brand.findByPk(req.params.id, { include: [{ model: User, as: "owner" }] });
+    const brand = await Brand.findByPk(req.params.id);
     if (!brand) return res.status(404).json({ error: "Brand not found" });
-    if (!brand.owner) return res.status(400).json({ error: "Brand has no owner account" });
 
     const password = String(req.body.password || "");
     const passwordError = validatePasswordStrength(password, "brand");
     if (passwordError) return res.status(400).json({ error: passwordError });
 
-    brand.owner.password = await bcrypt.hash(password, 10);
-    brand.owner.passwordChangedAt = new Date();
-    await brand.owner.save();
+    let owner = brand.ownerId ? await User.unscoped().findByPk(brand.ownerId) : null;
+    if (!owner) {
+      owner = await createOwnerForBrand(brand, password);
+      brand.ownerId = owner.id;
+      await brand.save();
+    } else {
+      owner.password = await bcrypt.hash(password, 10);
+      owner.passwordChangedAt = new Date();
+      if (owner.role !== "brand") owner.role = "brand";
+      await owner.save();
+    }
 
-    return res.json({ message: "Brand owner password updated successfully" });
+    return res.json({ message: "Brand password updated successfully", ownerId: owner.id });
   } catch (error) {
     console.error("Update brand owner password error:", error);
-    return res.status(500).json({ error: "Internal Server Error" });
+    return res.status(error.status || 500).json({ error: error.message || "Internal Server Error" });
   }
 });
 
