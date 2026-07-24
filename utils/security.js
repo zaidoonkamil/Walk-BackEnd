@@ -28,8 +28,9 @@ function getClientIp(req) {
 }
 
 function validatePasswordStrength(password, role = "user") {
-  const privilegedRole = role === "admin" || role === "brand" || role === "brand_owner";
-  const minLength = privilegedRole ? 10 : 8;
+  const brandRole = role === "brand" || role === "brand_owner";
+  const privilegedRole = role === "admin";
+  const minLength = brandRole ? 4 : privilegedRole ? 10 : 8;
   if (password.length < minLength) return `Password must be at least ${minLength} characters`;
   if (privilegedRole && !/[A-Z]/.test(password)) {
     return "Password must include an uppercase letter";
