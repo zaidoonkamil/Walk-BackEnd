@@ -1,9 +1,11 @@
 const express = require("express");
+const bcrypt = require("bcryptjs");
 const { Op } = require("sequelize");
 const upload = require("../middlewares/uploads");
 const { authenticate, authorize } = require("../middlewares/auth");
-const { BrandCategory, Brand, BrandSocialLink, Coupon, UserInterest } = require("../models");
+const { BrandCategory, Brand, BrandSocialLink, Coupon, User, UserInterest } = require("../models");
 const { toBool, toNumber } = require("../utils/http");
+const { validatePasswordStrength } = require("../utils/security");
 
 const router = express.Router();
 
@@ -288,6 +290,27 @@ router.patch("/admin/brands/:id", authenticate, authorize("admin"), upload.singl
   }
 });
 
+router.patch("/admin/brands/:id/owner-password", authenticate, authorize("admin"), async (req, res) => {
+  try {
+    const brand = await Brand.findByPk(req.params.id, { include: [{ model: User, as: "owner" }] });
+    if (!brand) return res.status(404).json({ error: "Brand not found" });
+    if (!brand.owner) return res.status(400).json({ error: "Brand has no owner account" });
+
+    const password = String(req.body.password || "");
+    const passwordError = validatePasswordStrength(password, "brand");
+    if (passwordError) return res.status(400).json({ error: passwordError });
+
+    brand.owner.password = await bcrypt.hash(password, 10);
+    brand.owner.passwordChangedAt = new Date();
+    await brand.owner.save();
+
+    return res.json({ message: "Brand owner password updated successfully" });
+  } catch (error) {
+    console.error("Update brand owner password error:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.delete("/admin/categories/:id", authenticate, authorize("admin"), async (req, res) => {
   const category = await BrandCategory.findByPk(req.params.id);
   if (!category) return res.status(404).json({ error: "Category not found" });
@@ -304,12 +327,12 @@ router.delete("/admin/brands/:id", authenticate, authorize("admin"), async (req,
   return res.json({ message: "Brand disabled successfully" });
 });
 
-router.get("/brand-owner/brands", authenticate, authorize("brand_owner"), async (req, res) => {
+router.get("/brand-owner/brands", authenticate, authorize("brand", "brand_owner"), async (req, res) => {
   const brands = await Brand.findAll({ where: { ownerId: req.user.id }, include: brandInclude });
   return res.json({ brands: brands.map((brand) => withImageUrl(req, brand)) });
 });
 
-router.patch("/brand-owner/brands/:id", authenticate, authorize("brand_owner"), upload.single("image"), async (req, res) => {
+router.patch("/brand-owner/brands/:id", authenticate, authorize("brand", "brand_owner"), upload.single("image"), async (req, res) => {
   const brand = await Brand.findOne({ where: { id: req.params.id, ownerId: req.user.id } });
   if (!brand) return res.status(404).json({ error: "Brand not found" });
 

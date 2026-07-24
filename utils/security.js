@@ -28,18 +28,19 @@ function getClientIp(req) {
 }
 
 function validatePasswordStrength(password, role = "user") {
-  const minLength = role === "admin" || role === "brand_owner" ? 10 : 8;
+  const privilegedRole = role === "admin" || role === "brand" || role === "brand_owner";
+  const minLength = privilegedRole ? 10 : 8;
   if (password.length < minLength) return `Password must be at least ${minLength} characters`;
-  if ((role === "admin" || role === "brand_owner") && !/[A-Z]/.test(password)) {
+  if (privilegedRole && !/[A-Z]/.test(password)) {
     return "Password must include an uppercase letter";
   }
-  if ((role === "admin" || role === "brand_owner") && !/[a-z]/.test(password)) {
+  if (privilegedRole && !/[a-z]/.test(password)) {
     return "Password must include a lowercase letter";
   }
-  if ((role === "admin" || role === "brand_owner") && !/\d/.test(password)) {
+  if (privilegedRole && !/\d/.test(password)) {
     return "Password must include a number";
   }
-  if ((role === "admin" || role === "brand_owner") && !/[^A-Za-z0-9]/.test(password)) {
+  if (privilegedRole && !/[^A-Za-z0-9]/.test(password)) {
     return "Password must include a symbol";
   }
   return null;

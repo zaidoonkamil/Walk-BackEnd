@@ -262,7 +262,7 @@ Returns the user, summary stats, recent steps, recent point transactions, recent
 
 Multipart fields: `name`, `phone`, `password`, `role`, optional `location`, `dailyStepGoal`, `isVerified`, `image`.
 
-Allowed roles: `user`, `admin`, `brand_owner`.
+Allowed roles: `user`, `admin`, `brand`.
 
 Admin and brand owner passwords must be strong.
 

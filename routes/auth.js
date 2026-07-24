@@ -16,7 +16,8 @@ const { writeAuditLog } = require("../services/audit");
 const router = express.Router();
 
 function signToken(user, jti = null) {
-  const expiresIn = user.role === "admin"
+  const role = user.role === "brand_owner" ? "brand" : user.role;
+  const expiresIn = role === "admin"
     ? process.env.ADMIN_JWT_EXPIRES_IN || "30m"
     : process.env.JWT_EXPIRES_IN || "30d";
 
@@ -25,7 +26,7 @@ function signToken(user, jti = null) {
     : new Date(user.createdAt || Date.now()).getTime();
 
   return jwt.sign(
-    { id: user.id, phone: user.phone, role: user.role, type: "access", jti, pwd: passwordVersion },
+    { id: user.id, phone: user.phone, role, type: "access", jti, pwd: passwordVersion },
     process.env.JWT_SECRET,
     { expiresIn }
   );

@@ -13,6 +13,7 @@ function publicUser(user) {
   if (!user) return null;
   const json = user.toJSON ? user.toJSON() : { ...user };
   delete json.password;
+  if (json.role === "brand_owner") json.role = "brand";
   return json;
 }
 

@@ -129,9 +129,9 @@ router.get("/coupons", async (req, res) => {
 });
 
 router.post("/admin/coupons", authenticate, authorize("admin"), (req, res) => createCoupon(req, res));
-router.post("/brand-owner/coupons", authenticate, authorize("brand_owner"), (req, res) => createCoupon(req, res, req.user.id));
+router.post("/brand-owner/coupons", authenticate, authorize("brand", "brand_owner"), (req, res) => createCoupon(req, res, req.user.id));
 
-router.patch("/brand-owner/coupons/:id", authenticate, authorize("brand_owner"), async (req, res) => {
+router.patch("/brand-owner/coupons/:id", authenticate, authorize("brand", "brand_owner"), async (req, res) => {
   const coupon = await Coupon.findByPk(req.params.id, { include: [{ model: Brand, as: "brand" }] });
   if (!coupon || coupon.brand.ownerId !== req.user.id) return res.status(404).json({ error: "Coupon not found" });
 
@@ -254,7 +254,7 @@ router.get("/coupon-purchases/:id/qr", authenticate, async (req, res) => {
   const purchase = await CouponPurchase.findOne({ where });
   if (!purchase) return res.status(404).json({ error: "Coupon purchase not found" });
 
-  if (req.user.role === "brand_owner") {
+  if (req.user.role === "brand" || req.user.role === "brand_owner") {
     const brand = await Brand.findOne({ where: { id: purchase.brandId, ownerId: req.user.id } });
     if (!brand) return res.status(403).json({ error: "You do not have permission" });
   }
@@ -262,7 +262,7 @@ router.get("/coupon-purchases/:id/qr", authenticate, async (req, res) => {
   return res.json(await attachQr(purchase));
 });
 
-router.post("/brand-owner/coupons/redeem", authenticate, authorize("brand_owner"), async (req, res) => {
+router.post("/brand-owner/coupons/redeem", authenticate, authorize("brand", "brand_owner"), async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
     const code = String(req.body.code || req.body.qrPayload || "").trim().toUpperCase();
@@ -319,7 +319,7 @@ router.post("/brand-owner/coupons/redeem", authenticate, authorize("brand_owner"
   }
 });
 
-router.get("/brand-owner/coupons/purchases", authenticate, authorize("brand_owner"), async (req, res) => {
+router.get("/brand-owner/coupons/purchases", authenticate, authorize("brand", "brand_owner"), async (req, res) => {
   const brandIds = (await Brand.findAll({ where: { ownerId: req.user.id }, attributes: ["id"] })).map((brand) => brand.id);
   const purchases = await CouponPurchase.findAll({
     where: { brandId: brandIds },

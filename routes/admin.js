@@ -74,7 +74,7 @@ router.get("/admin/dashboard", authenticate, authorize("admin"), async (req, res
     commissions,
   ] = await Promise.all([
     User.count({ where: { role: "user" } }),
-    User.count({ where: { role: "brand_owner" } }),
+    User.count({ where: { role: { [Op.in]: ["brand", "brand_owner"] } } }),
     Brand.count(),
     Coupon.count({ where: { isActive: true } }),
     CouponPurchase.count({ where: { status: "redeemed" } }),
@@ -218,7 +218,9 @@ router.get("/admin/reports", authenticate, authorize("admin"), async (req, res) 
 
 router.get("/admin/users", authenticate, authorize("admin"), async (req, res) => {
   const where = {};
-  if (req.query.role) where.role = req.query.role;
+  if (req.query.role) {
+    where.role = req.query.role === "brand" ? { [Op.in]: ["brand", "brand_owner"] } : req.query.role;
+  }
   if (req.query.q) {
     where[Op.or] = [
       { name: { [Op.like]: `%${req.query.q}%` } },
@@ -231,7 +233,7 @@ router.get("/admin/users", authenticate, authorize("admin"), async (req, res) =>
     attributes: { exclude: ["password"] },
     order: [["createdAt", "DESC"]],
   });
-  return res.json({ users });
+  return res.json({ users: users.map((user) => publicUser(user)) });
 });
 
 router.get("/admin/users/:id", authenticate, authorize("admin"), async (req, res) => {
@@ -271,7 +273,7 @@ router.post("/admin/users", upload.single("image"), authenticateAdminOrBootstrap
     const password = String(req.body.password || "");
     const role = req.bootstrapFirstAdmin
       ? "admin"
-      : ["user", "admin", "brand_owner"].includes(req.body.role)
+      : ["user", "admin", "brand"].includes(req.body.role)
         ? req.body.role
         : "user";
 
@@ -315,7 +317,7 @@ router.patch("/admin/users/:id", upload.single("image"), authenticate, authorize
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const nextRole = req.body.role === undefined ? user.role : String(req.body.role || "").trim();
-    if (!["user", "admin", "brand_owner"].includes(nextRole)) {
+    if (!["user", "admin", "brand"].includes(nextRole)) {
       return res.status(400).json({ error: "Invalid role" });
     }
 
