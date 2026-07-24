@@ -2,6 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const { Op } = require("sequelize");
 const upload = require("../middlewares/uploads");
+const QRCode = require("qrcode");
 const { User, StepEntry, CouponPurchase, Coupon, Brand } = require("../models");
 const { authenticate } = require("../middlewares/auth");
 const { publicUser, toNumber } = require("../utils/http");
@@ -78,7 +79,16 @@ router.get("/profile/coupons", authenticate, async (req, res) => {
     ],
     order: [["createdAt", "DESC"]],
   });
-  return res.json({ purchases });
+  const purchasesWithQr = await Promise.all(
+    purchases.map(async (purchase) => {
+      const json = purchase.toJSON();
+      return {
+        ...json,
+        qrCodeDataUrl: await QRCode.toDataURL(json.qrPayload || json.code),
+      };
+    }),
+  );
+  return res.json({ purchases: purchasesWithQr });
 });
 
 router.get("/profile/month-stats", authenticate, async (req, res) => {
