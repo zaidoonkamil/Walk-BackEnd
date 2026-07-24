@@ -219,7 +219,9 @@ router.get("/admin/reports", authenticate, authorize("admin"), async (req, res) 
 router.get("/admin/users", authenticate, authorize("admin"), async (req, res) => {
   const where = {};
   if (req.query.role) {
-    where.role = req.query.role === "brand" ? { [Op.in]: ["brand", "brand_owner"] } : req.query.role;
+    where.role = req.query.role === "brand"
+      ? { [Op.in]: ["brand", "brand_owner", "restaurant", "delivery", "agent"] }
+      : req.query.role;
   }
   if (req.query.q) {
     where[Op.or] = [

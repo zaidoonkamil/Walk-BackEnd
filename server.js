@@ -10,6 +10,7 @@ const sequelize = require("./config/db");
 const { FeaturedSection } = require("./models");
 const { expireOldCouponPurchases } = require("./services/couponExpiry");
 const { assertJwtSecret } = require("./utils/security");
+const { normalizeBrandRole } = require("./migrations/normalize-brand-role");
 const sanitizeRequest = require("./middlewares/sanitize");
 
 const authRouter = require("./routes/auth");
@@ -125,6 +126,7 @@ async function start() {
   try {
     assertJwtSecret();
     await sequelize.authenticate();
+    await normalizeBrandRole();
     await sequelize.sync({ alter: process.env.DB_SYNC_ALTER !== "false" });
     await seedFeaturedSections();
     await expireOldCouponPurchases();
