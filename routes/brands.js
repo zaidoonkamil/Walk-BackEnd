@@ -60,6 +60,63 @@ function validateCoordinates(latitude, longitude) {
   return null;
 }
 
+function normalizePhone(phone) {
+  return String(phone || "").trim().replace(/\s+/g, "");
+}
+
+async function resolveBrandOwner(req, name, fallbackLocation) {
+  const explicitOwnerId = toNumber(req.body.ownerId);
+  if (explicitOwnerId) {
+    const owner = await User.findByPk(explicitOwnerId);
+    if (!owner) {
+      const error = new Error("Brand owner account not found");
+      error.status = 404;
+      throw error;
+    }
+    return owner.id;
+  }
+
+  const password = String(req.body.password || "").trim();
+  if (!password) {
+    const error = new Error("brand account password is required");
+    error.status = 400;
+    throw error;
+  }
+
+  const phone = normalizePhone(req.body.accountPhone || req.body.phone);
+  if (!phone) {
+    const error = new Error("brand account phone is required");
+    error.status = 400;
+    throw error;
+  }
+
+  const passwordError = validatePasswordStrength(password, "brand");
+  if (passwordError) {
+    const error = new Error(passwordError);
+    error.status = 400;
+    throw error;
+  }
+
+  const exists = await User.unscoped().findOne({ where: { phone } });
+  if (exists) {
+    if (exists.role === "brand") return exists.id;
+    const error = new Error("Phone number already exists");
+    error.status = 409;
+    throw error;
+  }
+
+  const owner = await User.create({
+    name,
+    phone,
+    role: "brand",
+    location: req.body.locationText || fallbackLocation || null,
+    password: await bcrypt.hash(password, 10),
+    passwordChangedAt: new Date(),
+    isVerified: true,
+  });
+  return owner.id;
+}
+
 router.get("/categories", async (req, res) => {
   const categories = await BrandCategory.findAll({
     where: { isActive: true },
@@ -214,10 +271,12 @@ router.post("/admin/brands", authenticate, authorize("admin"), upload.single("im
     const coordinatesError = validateCoordinates(latitude, longitude);
     if (coordinatesError) return res.status(400).json({ error: coordinatesError });
 
+    const ownerId = await resolveBrandOwner(req, name, req.body.locationText);
+
     const brand = await Brand.create({
       name,
       categoryId: toNumber(req.body.categoryId),
-      ownerId: toNumber(req.body.ownerId),
+      ownerId,
       description: req.body.description || null,
       image: req.file?.filename || req.body.image || null,
       locationText: req.body.locationText || null,
@@ -240,7 +299,7 @@ router.post("/admin/brands", authenticate, authorize("admin"), upload.single("im
     return res.status(201).json({ brand: withImageUrl(req, fresh) });
   } catch (error) {
     console.error("Create brand error:", error);
-    return res.status(500).json({ error: "Internal Server Error" });
+    return res.status(error.status || 500).json({ error: error.message || "Internal Server Error" });
   }
 });
 
@@ -267,6 +326,9 @@ router.patch("/admin/brands/:id", authenticate, authorize("admin"), upload.singl
     ["categoryId", "ownerId", "defaultDiscountPercent", "commissionPercent", "popularityScore"].forEach((field) => {
       if (req.body[field] !== undefined) brand[field] = toNumber(req.body[field], brand[field]);
     });
+    if (!brand.ownerId && String(req.body.password || "").trim()) {
+      brand.ownerId = await resolveBrandOwner(req, brand.name, brand.locationText);
+    }
     brand.latitude = nextLatitude;
     brand.longitude = nextLongitude;
     ["isActive", "isFeatured"].forEach((field) => {
