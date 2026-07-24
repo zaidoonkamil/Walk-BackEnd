@@ -94,14 +94,22 @@ async function createCoupon(req, res, forcedOwnerId = null) {
     const brand = forcedOwnerId ? await findOwnedBrand(forcedOwnerId, brandId) : await Brand.findByPk(brandId);
     if (!brand) return res.status(404).json({ error: "Brand not found" });
 
+    const title = String(req.body.title || "").trim();
+    if (!title) return res.status(400).json({ error: "Coupon title is required" });
+
+    const discountValue = toNumber(req.body.discountValue, 0);
+    const pointsCost = toNumber(req.body.pointsCost, 0);
+    if (discountValue <= 0) return res.status(400).json({ error: "Coupon discount value must be greater than zero" });
+    if (pointsCost <= 0) return res.status(400).json({ error: "Coupon points cost must be greater than zero" });
+
     const coupon = await Coupon.create({
       brandId: brand.id,
       createdById: req.user.id,
-      title: String(req.body.title || "").trim(),
+      title,
       description: req.body.description || null,
       discountType: req.body.discountType === "fixed" ? "fixed" : "percentage",
-      discountValue: toNumber(req.body.discountValue, 0),
-      pointsCost: toNumber(req.body.pointsCost, 0),
+      discountValue,
+      pointsCost,
       quantity: toNumber(req.body.quantity),
       commissionPercent: req.body.commissionPercent !== undefined
         ? toNumber(req.body.commissionPercent)
@@ -131,16 +139,50 @@ router.get("/coupons", async (req, res) => {
 router.post("/admin/coupons", authenticate, authorize("admin"), (req, res) => createCoupon(req, res));
 router.post("/brand-owner/coupons", authenticate, authorize("brand", "brand_owner"), (req, res) => createCoupon(req, res, req.user.id));
 
+router.get("/brand-owner/coupons", authenticate, authorize("brand", "brand_owner"), async (req, res) => {
+  const ownedBrands = await Brand.findAll({
+    where: { ownerId: req.user.id },
+    attributes: ["id"],
+  });
+  const ownedBrandIds = ownedBrands.map((brand) => brand.id);
+  if (!ownedBrandIds.length) return res.json({ coupons: [] });
+
+  const requestedBrandId = req.query.brandId ? toNumber(req.query.brandId) : null;
+
+  if (requestedBrandId && !ownedBrandIds.includes(requestedBrandId)) {
+    return res.status(404).json({ error: "Brand not found" });
+  }
+
+  const where = {
+    brandId: requestedBrandId || ownedBrandIds,
+  };
+  if (req.query.isActive !== undefined) {
+    where.isActive = toBool(req.query.isActive, true);
+  }
+
+  const coupons = await Coupon.findAll({
+    where,
+    include: [{ model: Brand, as: "brand" }],
+    order: [["createdAt", "DESC"]],
+  });
+  return res.json({ coupons });
+});
+
 router.patch("/brand-owner/coupons/:id", authenticate, authorize("brand", "brand_owner"), async (req, res) => {
   const coupon = await Coupon.findByPk(req.params.id, { include: [{ model: Brand, as: "brand" }] });
   if (!coupon || coupon.brand.ownerId !== req.user.id) return res.status(404).json({ error: "Coupon not found" });
 
-  ["title", "description"].forEach((field) => {
-    if (req.body[field] !== undefined) coupon[field] = req.body[field];
-  });
+  if (req.body.title !== undefined) {
+    const title = String(req.body.title || "").trim();
+    if (!title) return res.status(400).json({ error: "Coupon title is required" });
+    coupon.title = title;
+  }
+  if (req.body.description !== undefined) coupon.description = req.body.description || null;
   ["discountValue", "pointsCost", "quantity", "commissionPercent"].forEach((field) => {
     if (req.body[field] !== undefined) coupon[field] = toNumber(req.body[field], coupon[field]);
   });
+  if (coupon.discountValue <= 0) return res.status(400).json({ error: "Coupon discount value must be greater than zero" });
+  if (coupon.pointsCost <= 0) return res.status(400).json({ error: "Coupon points cost must be greater than zero" });
   if (req.body.discountType !== undefined) coupon.discountType = req.body.discountType === "fixed" ? "fixed" : "percentage";
   if (req.body.isActive !== undefined) coupon.isActive = toBool(req.body.isActive, coupon.isActive);
   await coupon.save();
