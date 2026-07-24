@@ -306,7 +306,7 @@ router.delete("/admin/brands/:id", authenticate, authorize("admin"), async (req,
 
 router.get("/brand-owner/brands", authenticate, authorize("brand_owner"), async (req, res) => {
   const brands = await Brand.findAll({ where: { ownerId: req.user.id }, include: brandInclude });
-  return res.json({ brands });
+  return res.json({ brands: brands.map((brand) => withImageUrl(req, brand)) });
 });
 
 router.patch("/brand-owner/brands/:id", authenticate, authorize("brand_owner"), upload.single("image"), async (req, res) => {
