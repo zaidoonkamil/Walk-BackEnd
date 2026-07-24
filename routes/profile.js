@@ -1,5 +1,5 @@
 const express = require("express");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs");
 const { Op } = require("sequelize");
 const upload = require("../middlewares/uploads");
 const { User, StepEntry, CouponPurchase, Coupon, Brand } = require("../models");
