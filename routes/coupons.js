@@ -94,9 +94,6 @@ async function createCoupon(req, res, forcedOwnerId = null) {
     const brand = forcedOwnerId ? await findOwnedBrand(forcedOwnerId, brandId) : await Brand.findByPk(brandId);
     if (!brand) return res.status(404).json({ error: "Brand not found" });
 
-    const title = String(req.body.title || "").trim();
-    if (!title) return res.status(400).json({ error: "Coupon title is required" });
-
     const discountValue = toNumber(req.body.discountValue, 0);
     const pointsCost = forcedOwnerId
       ? toNumber(req.body.pointsCost, toNumber(process.env.DEFAULT_BRAND_COUPON_POINTS_COST, 1))
@@ -104,12 +101,16 @@ async function createCoupon(req, res, forcedOwnerId = null) {
     if (discountValue <= 0) return res.status(400).json({ error: "Coupon discount value must be greater than zero" });
     if (pointsCost <= 0) return res.status(400).json({ error: "Coupon points cost must be greater than zero" });
 
+    const discountType = forcedOwnerId ? "percentage" : req.body.discountType === "fixed" ? "fixed" : "percentage";
+    const title = String(req.body.title || "").trim()
+      || (discountType === "fixed" ? `Discount ${discountValue}` : `Discount ${discountValue}%`);
+
     const coupon = await Coupon.create({
       brandId: brand.id,
       createdById: req.user.id,
       title,
       description: req.body.description || null,
-      discountType: req.body.discountType === "fixed" ? "fixed" : "percentage",
+      discountType,
       discountValue,
       pointsCost,
       quantity: toNumber(req.body.quantity),
