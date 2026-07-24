@@ -159,6 +159,7 @@ router.get("/admin/categories", authenticate, authorize("admin"), async (req, re
 
 router.get("/admin/brands", authenticate, authorize("admin"), async (req, res) => {
   const where = {};
+  if (req.query.includeInactive !== "true") where.isActive = true;
   if (req.query.categoryId) where.categoryId = req.query.categoryId;
   if (req.query.q) where.name = { [Op.like]: `%${req.query.q}%` };
 
