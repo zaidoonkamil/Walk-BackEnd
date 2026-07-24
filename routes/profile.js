@@ -84,19 +84,36 @@ router.get("/profile/coupons", authenticate, async (req, res) => {
 router.get("/profile/month-stats", authenticate, async (req, res) => {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const user = await User.findByPk(req.user.id);
+  if (!user) return res.status(404).json({ error: "User not found" });
+
   const entries = await StepEntry.findAll({
-    where: { userId: req.user.id, date: { [require("sequelize").Op.gte]: start } },
+    where: { userId: req.user.id, date: { [Op.gte]: start } },
     order: [["date", "ASC"]],
   });
 
   const totals = entries.reduce((acc, entry) => {
     acc.steps += entry.steps;
     acc.calories += entry.calories;
+    acc.distanceKm += entry.distanceKm;
+    acc.activeMinutes += entry.activeMinutes;
     acc.points += entry.pointsEarned;
+    acc.iqd += entry.iqdEarned || 0;
+    acc.goalDays += entry.steps >= user.dailyStepGoal ? 1 : 0;
     return acc;
-  }, { steps: 0, calories: 0, points: 0 });
+  }, { steps: 0, calories: 0, distanceKm: 0, activeMinutes: 0, points: 0, iqd: 0, goalDays: 0 });
 
-  return res.json({ totals, days: entries });
+  return res.json({
+    month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
+    dailyGoal: user.dailyStepGoal,
+    totals: {
+      ...totals,
+      calories: Number(totals.calories.toFixed(2)),
+      distanceKm: Number(totals.distanceKm.toFixed(2)),
+      averageSteps: entries.length ? Math.round(totals.steps / entries.length) : 0,
+    },
+    days: entries,
+  });
 });
 
 module.exports = router;
