@@ -80,22 +80,42 @@ async function sendViaOtpiq(phone, code) {
 
   const baseUrl = process.env.OTPIQ_BASE_URL || "https://api.otpiq.com";
   const provider = process.env.OTPIQ_PROVIDER || DEFAULT_PROVIDER;
-  const response = await axios.post(
-    `${baseUrl.replace(/\/+$/, "")}/api/sms`,
-    {
-      phoneNumber: phone,
-      smsType: "verification",
-      provider,
-      verificationCode: code,
-    },
-    {
-      timeout: Number(process.env.OTPIQ_TIMEOUT_MS || 10000),
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
+  let response;
+  try {
+    response = await axios.post(
+      `${baseUrl.replace(/\/+$/, "")}/api/sms`,
+      {
+        phoneNumber: phone,
+        smsType: "verification",
+        provider,
+        verificationCode: code,
       },
+      {
+        timeout: Number(process.env.OTPIQ_TIMEOUT_MS || 10000),
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+  } catch (error) {
+    const providerMessage =
+      error.response?.data?.error ||
+      error.response?.data?.message ||
+      error.message ||
+      "OTP provider request failed";
+    const mapped = new Error(providerMessage);
+    mapped.statusCode = error.response?.status || 502;
+    mapped.providerError = error.response?.data || providerMessage;
+
+    if (/trial mode/i.test(providerMessage)) {
+      mapped.message =
+        "حساب OTPIQ بوضع التجربة، تقدر ترسل فقط للرقم الموثق أو لازم تضيف رصيد للحساب";
+      mapped.code = "OTPIQ_TRIAL_MODE";
     }
-  );
+
+    throw mapped;
+  }
 
   return {
     provider,
