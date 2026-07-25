@@ -15,6 +15,27 @@ Security notes:
 - Admin tokens are backed by `AdminSessions`; logout/revoke invalidates tokens immediately.
 - In production, `JWT_SECRET` must be at least 32 characters.
 - Admin and brand owner passwords require at least 10 characters with uppercase, lowercase, number and symbol.
+- OTP delivery uses OTPIQ from the backend only; never put `OTPIQ_API_KEY` in the Flutter app.
+
+OTP environment variables:
+
+```env
+OTPIQ_API_KEY=sk_live_xxxxxxxx
+OTPIQ_BASE_URL=https://api.otpiq.com
+OTPIQ_PROVIDER=whatsapp-telegram-sms
+OTP_CODE_LENGTH=6
+OTP_TTL_MS=300000
+OTP_RESEND_COOLDOWN_MS=60000
+OTP_MAX_VERIFY_ATTEMPTS=5
+OTP_DAILY_SEND_LIMIT=10
+```
+
+For local testing only:
+
+```env
+OTP_DRY_RUN=true
+NODE_ENV=development
+```
 
 ## Auth
 
@@ -22,7 +43,9 @@ Security notes:
 
 `POST /auth/register`
 
-Multipart fields: `name`, `phone`, `password`, `location`, optional `image`.
+Multipart fields: `name`, `phone`, `password`, optional `location`, optional `image`.
+
+New user accounts are created with `isVerified=false`; verify the phone with OTP before normal login.
 
 ### Bootstrap First Admin
 
@@ -41,6 +64,30 @@ JSON:
 ```json
 { "phone": "07700000000", "password": "123456" }
 ```
+
+If the user account is not verified, the response is `403` with `code: "ACCOUNT_NOT_VERIFIED"`.
+
+### Send OTP
+
+`POST /send-otp`
+
+Public endpoint for unverified user accounts.
+
+```json
+{ "phone": "07700000000" }
+```
+
+The OTP is sent by OTPIQ. The API returns expiry and resend cooldown metadata.
+
+### Verify OTP
+
+`POST /verify-otp`
+
+```json
+{ "phone": "07700000000", "code": "123456" }
+```
+
+Returns the verified user and access token.
 
 ### Current User
 

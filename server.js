@@ -71,6 +71,7 @@ const adminLimiter = rateLimit({
 });
 
 app.use(["/auth/login", "/login"], authLimiter);
+app.use(["/send-otp", "/verify-otp"], authLimiter);
 app.use(["/auth/register", "/users"], registerLimiter);
 app.use("/admin", adminLimiter);
 

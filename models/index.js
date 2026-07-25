@@ -17,6 +17,7 @@ const CommissionLog = require("./commission_log");
 const FeaturedSection = require("./featured_section");
 const FeaturedBrand = require("./featured_brand");
 const UserInterest = require("./user_interest");
+const OtpVerification = require("./otp_verification");
 
 User.hasMany(UserDevice, { foreignKey: "user_id", as: "devices", onDelete: "CASCADE" });
 UserDevice.belongsTo(User, { foreignKey: "user_id", as: "user", onDelete: "CASCADE" });
@@ -40,6 +41,9 @@ User.hasMany(UserInterest, { foreignKey: "userId", as: "interests", onDelete: "C
 UserInterest.belongsTo(User, { foreignKey: "userId", as: "user", onDelete: "CASCADE" });
 BrandCategory.hasMany(UserInterest, { foreignKey: "categoryId", as: "userInterests", onDelete: "CASCADE" });
 UserInterest.belongsTo(BrandCategory, { foreignKey: "categoryId", as: "category", onDelete: "CASCADE" });
+
+User.hasMany(OtpVerification, { foreignKey: "userId", as: "otpVerifications", onDelete: "CASCADE" });
+OtpVerification.belongsTo(User, { foreignKey: "userId", as: "user", onDelete: "CASCADE" });
 
 User.hasMany(Brand, { foreignKey: "ownerId", as: "ownedBrands", onDelete: "SET NULL" });
 Brand.belongsTo(User, { foreignKey: "ownerId", as: "owner", onDelete: "SET NULL" });
@@ -101,4 +105,5 @@ module.exports = {
   FeaturedSection,
   FeaturedBrand,
   UserInterest,
+  OtpVerification,
 };

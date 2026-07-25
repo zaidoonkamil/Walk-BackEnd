@@ -131,8 +131,41 @@ async function cleanupInactiveFeaturedBrands() {
   }
 }
 
+async function ensureOtpVerificationsTable() {
+  try {
+    await sequelize.query(
+      `CREATE TABLE IF NOT EXISTS OtpVerifications (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        phone VARCHAR(255) NOT NULL,
+        purpose ENUM('register','login','phone_verify') NOT NULL DEFAULT 'phone_verify',
+        codeHash VARCHAR(255) NOT NULL,
+        attempts INT NOT NULL DEFAULT 0,
+        maxAttempts INT NOT NULL DEFAULT 5,
+        expiresAt DATETIME NOT NULL,
+        consumedAt DATETIME NULL,
+        ipAddress VARCHAR(255) NULL,
+        provider VARCHAR(255) NULL,
+        providerMessageId VARCHAR(255) NULL,
+        userId INT NULL,
+        createdAt DATETIME NOT NULL,
+        updatedAt DATETIME NOT NULL,
+        INDEX otp_verifications_phone (phone),
+        INDEX otp_verifications_phone_purpose (phone, purpose),
+        INDEX otp_verifications_expires_at (expiresAt),
+        INDEX otp_verifications_user_id (userId),
+        CONSTRAINT otp_verifications_user_id_fk
+          FOREIGN KEY (userId) REFERENCES Users(id)
+          ON DELETE CASCADE ON UPDATE CASCADE
+      )`
+    );
+  } catch (error) {
+    console.warn("OTP table migration skipped:", error.message);
+  }
+}
+
 async function runStartupMigrations() {
   await normalizeBrandRole();
+  await ensureOtpVerificationsTable();
   await ensureMissingBrandAccounts();
   await cleanupInactiveFeaturedBrands();
 }
@@ -150,5 +183,6 @@ module.exports = {
   normalizeBrandRole,
   ensureMissingBrandAccounts,
   cleanupInactiveFeaturedBrands,
+  ensureOtpVerificationsTable,
   runStartupMigrations,
 };

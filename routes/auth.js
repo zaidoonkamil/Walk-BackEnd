@@ -12,6 +12,7 @@ const {
   validatePasswordStrength,
 } = require("../utils/security");
 const { writeAuditLog } = require("../services/audit");
+const { createAndSendOtp, verifyOtpCode } = require("../services/otp");
 
 const router = express.Router();
 
@@ -72,8 +73,8 @@ router.post(["/auth/register", "/users"], upload.single("image"), async (req, re
     const password = String(req.body.password || "");
     const location = String(req.body.location || "").trim();
 
-    if (!name || !phone || !password || !location) {
-      return res.status(400).json({ error: "name, phone, password and location are required" });
+    if (!name || !phone || !password) {
+      return res.status(400).json({ error: "name, phone and password are required" });
     }
     const passwordError = validatePasswordStrength(password, "user");
     if (passwordError) return res.status(400).json({ error: passwordError });
@@ -89,9 +90,14 @@ router.post(["/auth/register", "/users"], upload.single("image"), async (req, re
       password: await bcrypt.hash(password, 10),
       passwordChangedAt: new Date(),
       role: "user",
+      isVerified: false,
     });
 
-    return res.status(201).json({ user: publicUser(user), token: signToken(user) });
+    return res.status(201).json({
+      user: publicUser(user),
+      requiresOtp: true,
+      message: "Account created. Verification code is required.",
+    });
   } catch (error) {
     console.error("Register error:", error);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -184,6 +190,14 @@ router.post(["/auth/login", "/login"], async (req, res) => {
     user.lastLoginAt = new Date();
     await user.save();
 
+    if (user.role === "user" && !user.isVerified) {
+      return res.status(403).json({
+        error: "Account is not verified",
+        code: "ACCOUNT_NOT_VERIFIED",
+        phone: user.phone,
+      });
+    }
+
     let jti = null;
     if (user.role === "admin") {
       jti = generateJti();
@@ -213,6 +227,80 @@ router.post(["/auth/login", "/login"], async (req, res) => {
   } catch (error) {
     console.error("Login error:", error);
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/send-otp", async (req, res) => {
+  try {
+    const phone = normalizePhone(req.body.phone);
+    if (!phone) return res.status(400).json({ error: "phone is required" });
+
+    const user = await User.unscoped().findOne({ where: { phone } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (user.role !== "user") {
+      return res.status(400).json({ error: "OTP is available for user accounts only" });
+    }
+    if (user.isVerified) {
+      return res.status(409).json({ error: "Account is already verified" });
+    }
+
+    const result = await createAndSendOtp({
+      req,
+      phone,
+      userId: user.id,
+      purpose: "phone_verify",
+    });
+
+    await writeAuditLog(req, "auth.otp_sent", {
+      actorId: user.id,
+      actorRole: user.role,
+      entityType: "User",
+      entityId: user.id,
+      metadata: { provider: result.otp.provider },
+    });
+
+    return res.json({
+      message: "Verification code sent",
+      expiresInSeconds: result.expiresInSeconds,
+      cooldownSeconds: result.cooldownSeconds,
+      dryRunCode: result.dryRunCode,
+    });
+  } catch (error) {
+    console.error("Send OTP error:", error.response?.data || error.message || error);
+    return res.status(error.statusCode || 500).json({
+      error: error.message || "Internal Server Error",
+      waitSeconds: error.waitSeconds,
+    });
+  }
+});
+
+router.post("/verify-otp", async (req, res) => {
+  try {
+    const phone = normalizePhone(req.body.phone);
+    const code = String(req.body.code || "").trim();
+    if (!phone || !code) return res.status(400).json({ error: "phone and code are required" });
+
+    const result = await verifyOtpCode({ phone, code, purpose: "phone_verify" });
+    if (!result.user) return res.status(404).json({ error: "User not found" });
+
+    await writeAuditLog(req, "auth.otp_verified", {
+      actorId: result.user.id,
+      actorRole: result.user.role,
+      entityType: "User",
+      entityId: result.user.id,
+    });
+
+    return res.json({
+      message: "Account verified successfully",
+      user: publicUser(result.user),
+      token: signToken(result.user),
+      tokenExpiresIn: process.env.JWT_EXPIRES_IN || "30d",
+    });
+  } catch (error) {
+    console.error("Verify OTP error:", error.message || error);
+    return res.status(error.statusCode || 500).json({
+      error: error.message || "Internal Server Error",
+    });
   }
 });
 
