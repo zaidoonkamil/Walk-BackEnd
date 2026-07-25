@@ -1,5 +1,6 @@
 const express = require("express");
 const QRCode = require("qrcode");
+const { Op } = require("sequelize");
 const sequelize = require("../config/db");
 const { authenticate, authorize } = require("../middlewares/auth");
 const {
@@ -154,7 +155,46 @@ router.get("/admin/coupons", authenticate, authorize("admin"), async (req, res) 
   return res.json({ coupons });
 });
 
-router.patch("/admin/coupons/:id", authenticate, authorize("admin"), async (req, res) => {
+async function currentAdminCommissionPercent() {
+  const coupon = await Coupon.findOne({
+    where: { commissionPercent: { [Op.ne]: null } },
+    order: [["updatedAt", "DESC"]],
+  });
+  if (coupon) return Number(coupon.commissionPercent || 0);
+
+  const brand = await Brand.findOne({
+    order: [["updatedAt", "DESC"]],
+  });
+  return Number(brand?.commissionPercent || 0);
+}
+
+router.get("/admin/coupons/settings", authenticate, authorize("admin"), async (req, res) => {
+  return res.json({ commissionPercent: await currentAdminCommissionPercent() });
+});
+
+async function updateAdminCommission(req, res) {
+  const commissionPercent = toNumber(req.body.commissionPercent, -1);
+  if (commissionPercent < 0 || commissionPercent > 100) {
+    return res.status(400).json({ error: "Commission percent must be between 0 and 100" });
+  }
+
+  await Promise.all([
+    Coupon.update({ commissionPercent }, { where: {} }),
+    Brand.update({ commissionPercent }, { where: {} }),
+  ]);
+  await writeAuditLog(req, "coupon.commission_update", {
+    entityType: "Coupon",
+    note: `Admin commission updated to ${commissionPercent}%`,
+    metadata: { commissionPercent },
+  });
+
+  return res.json({ commissionPercent });
+}
+
+router.patch("/admin/coupons/settings", authenticate, authorize("admin"), updateAdminCommission);
+router.post("/admin/coupons/settings", authenticate, authorize("admin"), updateAdminCommission);
+
+async function updateAdminCoupon(req, res) {
   const coupon = await Coupon.findByPk(req.params.id, { include: [{ model: Brand, as: "brand" }] });
   if (!coupon) return res.status(404).json({ error: "Coupon not found" });
 
@@ -180,7 +220,12 @@ router.patch("/admin/coupons/:id", authenticate, authorize("admin"), async (req,
 
   const fresh = await Coupon.findByPk(coupon.id, { include: [{ model: Brand, as: "brand" }] });
   return res.json({ coupon: fresh });
-});
+}
+
+router.patch("/admin/coupons/:id", authenticate, authorize("admin"), updateAdminCoupon);
+router.put("/admin/coupons/:id", authenticate, authorize("admin"), updateAdminCoupon);
+router.post("/admin/coupons/:id", authenticate, authorize("admin"), updateAdminCoupon);
+router.post("/admin/coupons/:id/update", authenticate, authorize("admin"), updateAdminCoupon);
 
 router.delete("/admin/coupons/:id", authenticate, authorize("admin"), async (req, res) => {
   const coupon = await Coupon.findByPk(req.params.id);
