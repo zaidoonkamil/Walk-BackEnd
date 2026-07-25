@@ -1,9 +1,27 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const { Op } = require("sequelize");
+const sequelize = require("../config/db");
 const upload = require("../middlewares/uploads");
 const { authenticate, authorize } = require("../middlewares/auth");
-const { BrandCategory, Brand, BrandSocialLink, Coupon, User, UserInterest } = require("../models");
+const {
+  BrandCategory,
+  Brand,
+  BrandSocialLink,
+  Coupon,
+  User,
+  UserInterest,
+  UserDevice,
+  AdminSession,
+  CouponCartItem,
+  StepEntry,
+  PointTransaction,
+  UserRating,
+  CouponPurchase,
+  AuditLog,
+  NotificationLog,
+  FeaturedBrand,
+} = require("../models");
 const { toBool, toNumber } = require("../utils/http");
 const { validatePasswordStrength } = require("../utils/security");
 
@@ -425,11 +443,54 @@ router.delete("/admin/categories/:id", authenticate, authorize("admin"), async (
 });
 
 router.delete("/admin/brands/:id", authenticate, authorize("admin"), async (req, res) => {
-  const brand = await Brand.findByPk(req.params.id);
-  if (!brand) return res.status(404).json({ error: "Brand not found" });
-  brand.isActive = false;
-  await brand.save();
-  return res.json({ message: "Brand disabled successfully" });
+  const transaction = await sequelize.transaction();
+  try {
+    const brand = await Brand.findByPk(req.params.id, { transaction });
+    if (!brand) {
+      await transaction.rollback();
+      return res.status(404).json({ error: "Brand not found" });
+    }
+
+    const ownerId = brand.ownerId;
+    brand.isActive = false;
+    brand.ownerId = null;
+    await brand.save({ transaction });
+    await FeaturedBrand.destroy({ where: { brandId: brand.id }, transaction });
+
+    let ownerDeleted = false;
+    if (ownerId) {
+      const activeBrands = await Brand.count({
+        where: { ownerId, isActive: true },
+        transaction,
+      });
+      const owner = await User.unscoped().findByPk(ownerId, { transaction });
+      if (owner && owner.role === "brand" && activeBrands === 0) {
+        await Promise.all([
+          UserDevice.destroy({ where: { user_id: owner.id }, transaction }),
+          AdminSession.destroy({ where: { userId: owner.id }, transaction }),
+          UserInterest.destroy({ where: { userId: owner.id }, transaction }),
+          CouponCartItem.destroy({ where: { userId: owner.id }, transaction }),
+          StepEntry.destroy({ where: { userId: owner.id }, transaction }),
+          PointTransaction.destroy({ where: { userId: owner.id }, transaction }),
+          UserRating.destroy({ where: { [Op.or]: [{ userId: owner.id }, { ratedByUserId: owner.id }] }, transaction }),
+          CouponPurchase.destroy({ where: { userId: owner.id }, transaction }),
+          CouponPurchase.update({ redeemedById: null }, { where: { redeemedById: owner.id }, transaction }),
+          Coupon.update({ createdById: null }, { where: { createdById: owner.id }, transaction }),
+          AuditLog.update({ actorId: null }, { where: { actorId: owner.id }, transaction }),
+          NotificationLog.update({ user_id: null }, { where: { user_id: owner.id }, transaction }),
+        ]);
+        await owner.destroy({ transaction });
+        ownerDeleted = true;
+      }
+    }
+
+    await transaction.commit();
+    return res.json({ message: "Brand disabled successfully", ownerDeleted });
+  } catch (error) {
+    await transaction.rollback();
+    console.error("Delete brand error:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 router.get("/brand-owner/brands", authenticate, authorize("brand", "brand_owner"), async (req, res) => {

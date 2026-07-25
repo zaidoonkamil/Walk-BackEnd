@@ -1,17 +1,24 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const { Op, fn, col } = require("sequelize");
+const sequelize = require("../config/db");
 const { authenticate, authorize } = require("../middlewares/auth");
 const upload = require("../middlewares/uploads");
 const {
   User,
+  UserDevice,
+  UserRating,
   Brand,
   Coupon,
   CouponPurchase,
+  CouponCartItem,
   CommissionLog,
   StepEntry,
   PointTransaction,
   AdminSession,
+  AuditLog,
+  NotificationLog,
+  UserInterest,
 } = require("../models");
 const { publicUser, toNumber, toBool } = require("../utils/http");
 const { validatePasswordStrength } = require("../utils/security");
@@ -371,18 +378,61 @@ router.patch("/admin/users/:id", upload.single("image"), authenticate, authorize
 });
 
 router.delete("/admin/users/:id", authenticate, authorize("admin"), async (req, res) => {
-  const user = await User.findByPk(req.params.id);
-  if (!user) return res.status(404).json({ error: "User not found" });
-  if (req.user.id === user.id) {
-    return res.status(400).json({ error: "You cannot delete your own account" });
+  const transaction = await sequelize.transaction();
+  try {
+    const user = await User.unscoped().findByPk(req.params.id, { transaction });
+    if (!user) {
+      await transaction.rollback();
+      return res.status(404).json({ error: "User not found" });
+    }
+    if (req.user.id === user.id) {
+      await transaction.rollback();
+      return res.status(400).json({ error: "You cannot delete your own account" });
+    }
+
+    const ownedBrands = await Brand.findAll({
+      where: { ownerId: user.id },
+      attributes: ["id"],
+      transaction,
+    });
+    const ownedBrandIds = ownedBrands.map((brand) => brand.id);
+
+    if (ownedBrandIds.length) {
+      await Brand.update(
+        { isActive: false, ownerId: null },
+        { where: { id: ownedBrandIds }, transaction },
+      );
+    }
+
+    await Promise.all([
+      UserDevice.destroy({ where: { user_id: user.id }, transaction }),
+      AdminSession.destroy({ where: { userId: user.id }, transaction }),
+      UserInterest.destroy({ where: { userId: user.id }, transaction }),
+      CouponCartItem.destroy({ where: { userId: user.id }, transaction }),
+      StepEntry.destroy({ where: { userId: user.id }, transaction }),
+      PointTransaction.destroy({ where: { userId: user.id }, transaction }),
+      UserRating.destroy({ where: { [Op.or]: [{ userId: user.id }, { ratedByUserId: user.id }] }, transaction }),
+      CouponPurchase.destroy({ where: { userId: user.id }, transaction }),
+      CouponPurchase.update({ redeemedById: null }, { where: { redeemedById: user.id }, transaction }),
+      Coupon.update({ createdById: null }, { where: { createdById: user.id }, transaction }),
+      AuditLog.update({ actorId: null }, { where: { actorId: user.id }, transaction }),
+      NotificationLog.update({ user_id: null }, { where: { user_id: user.id }, transaction }),
+    ]);
+
+    await user.destroy({ transaction });
+    await transaction.commit();
+
+    await writeAuditLog(req, "admin.user_delete", {
+      entityType: "User",
+      entityId: user.id,
+      metadata: { role: user.role, disabledBrandIds: ownedBrandIds },
+    });
+    return res.json({ message: "User deleted", disabledBrandIds: ownedBrandIds });
+  } catch (error) {
+    await transaction.rollback();
+    console.error("Admin delete user error:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
-  await user.destroy();
-  await writeAuditLog(req, "admin.user_delete", {
-    entityType: "User",
-    entityId: user.id,
-    metadata: { role: user.role },
-  });
-  return res.json({ message: "User deleted" });
 });
 
 router.patch("/admin/users/:id/points", authenticate, authorize("admin"), async (req, res) => {

@@ -38,7 +38,7 @@ async function ensureMissingBrandAccounts() {
       `SELECT b.id, b.name, b.phone, b.locationText
        FROM Brands b
        LEFT JOIN Users u ON b.ownerId = u.id
-       WHERE b.ownerId IS NULL OR b.ownerId = 0 OR u.id IS NULL`,
+       WHERE b.isActive = true AND (b.ownerId IS NULL OR b.ownerId = 0 OR u.id IS NULL)`,
       { type: QueryTypes.SELECT }
     );
   } catch (error) {
