@@ -137,7 +137,7 @@ async function ensureOtpVerificationsTable() {
       `CREATE TABLE IF NOT EXISTS OtpVerifications (
         id INT AUTO_INCREMENT PRIMARY KEY,
         phone VARCHAR(255) NOT NULL,
-        purpose ENUM('register','login','phone_verify') NOT NULL DEFAULT 'phone_verify',
+        purpose ENUM('register','login','phone_verify','reset_password') NOT NULL DEFAULT 'phone_verify',
         codeHash VARCHAR(255) NOT NULL,
         attempts INT NOT NULL DEFAULT 0,
         maxAttempts INT NOT NULL DEFAULT 5,
@@ -157,6 +157,9 @@ async function ensureOtpVerificationsTable() {
           FOREIGN KEY (userId) REFERENCES Users(id)
           ON DELETE CASCADE ON UPDATE CASCADE
       )`
+    );
+    await sequelize.query(
+      "ALTER TABLE OtpVerifications MODIFY purpose ENUM('register','login','phone_verify','reset_password') NOT NULL DEFAULT 'phone_verify'"
     );
   } catch (error) {
     console.warn("OTP table migration skipped:", error.message);

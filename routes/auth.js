@@ -304,6 +304,94 @@ router.post("/verify-otp", async (req, res) => {
   }
 });
 
+router.post("/auth/password/forgot", async (req, res) => {
+  try {
+    const phone = normalizePhone(req.body.phone);
+    if (!phone) return res.status(400).json({ error: "phone is required" });
+
+    const user = await User.unscoped().findOne({ where: { phone } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const result = await createAndSendOtp({
+      req,
+      phone,
+      userId: user.id,
+      purpose: "reset_password",
+    });
+
+    await writeAuditLog(req, "auth.password_reset_otp_sent", {
+      actorId: user.id,
+      actorRole: user.role,
+      entityType: "User",
+      entityId: user.id,
+      metadata: { provider: result.otp.provider },
+    });
+
+    return res.json({
+      message: "Password reset code sent",
+      expiresInSeconds: result.expiresInSeconds,
+      cooldownSeconds: result.cooldownSeconds,
+      dryRunCode: result.dryRunCode,
+    });
+  } catch (error) {
+    console.error("Forgot password OTP error:", error.response?.data || error.message || error);
+    return res.status(error.statusCode || 500).json({
+      error: error.message || "Internal Server Error",
+      waitSeconds: error.waitSeconds,
+    });
+  }
+});
+
+router.post("/auth/password/reset", async (req, res) => {
+  try {
+    const phone = normalizePhone(req.body.phone);
+    const code = String(req.body.code || "").trim();
+    const password = String(req.body.password || "");
+
+    if (!phone || !code || !password) {
+      return res.status(400).json({ error: "phone, code and password are required" });
+    }
+
+    const result = await verifyOtpCode({
+      phone,
+      code,
+      purpose: "reset_password",
+      markUserVerified: false,
+    });
+    if (!result.user) return res.status(404).json({ error: "User not found" });
+
+    const passwordError = validatePasswordStrength(password, result.user.role);
+    if (passwordError) return res.status(400).json({ error: passwordError });
+
+    result.user.password = await bcrypt.hash(password, 10);
+    result.user.passwordChangedAt = new Date();
+    result.user.failedLoginAttempts = 0;
+    result.user.lockedUntil = null;
+    await result.user.save();
+
+    if (result.user.role === "admin") {
+      await AdminSession.update(
+        { revokedAt: new Date() },
+        { where: { userId: result.user.id, revokedAt: null } }
+      );
+    }
+
+    await writeAuditLog(req, "auth.password_reset_success", {
+      actorId: result.user.id,
+      actorRole: result.user.role,
+      entityType: "User",
+      entityId: result.user.id,
+    });
+
+    return res.json({ message: "Password reset successfully" });
+  } catch (error) {
+    console.error("Reset password error:", error.message || error);
+    return res.status(error.statusCode || 500).json({
+      error: error.message || "Internal Server Error",
+    });
+  }
+});
+
 router.get("/auth/me", authenticate, async (req, res) => {
   const user = await User.findByPk(req.user.id);
   if (!user) return res.status(404).json({ error: "User not found" });

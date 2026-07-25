@@ -89,6 +89,26 @@ The OTP is sent by OTPIQ. The API returns expiry and resend cooldown metadata.
 
 Returns the verified user and access token.
 
+### Forgot Password
+
+`POST /auth/password/forgot`
+
+```json
+{ "phone": "07700000000" }
+```
+
+Sends a password reset OTP through OTPIQ.
+
+### Reset Password
+
+`POST /auth/password/reset`
+
+```json
+{ "phone": "07700000000", "code": "123456", "password": "newPassword123" }
+```
+
+Verifies the reset OTP and updates the account password.
+
 ### Current User
 
 `GET /auth/me`

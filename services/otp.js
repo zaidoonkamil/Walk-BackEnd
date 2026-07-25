@@ -133,7 +133,7 @@ async function createAndSendOtp({ req, phone, userId = null, purpose = "phone_ve
   };
 }
 
-async function verifyOtpCode({ phone, code, purpose = "phone_verify" }) {
+async function verifyOtpCode({ phone, code, purpose = "phone_verify", markUserVerified = true }) {
   const otp = await OtpVerification.findOne({
     where: {
       phone,
@@ -169,7 +169,7 @@ async function verifyOtpCode({ phone, code, purpose = "phone_verify" }) {
   await otp.save();
 
   const user = await User.unscoped().findOne({ where: { phone } });
-  if (user && !user.isVerified) {
+  if (markUserVerified && user && !user.isVerified) {
     user.isVerified = true;
     await user.save();
   }

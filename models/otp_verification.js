@@ -5,7 +5,7 @@ const OtpVerification = sequelize.define("OtpVerification", {
   id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
   phone: { type: DataTypes.STRING, allowNull: false },
   purpose: {
-    type: DataTypes.ENUM("register", "login", "phone_verify"),
+    type: DataTypes.ENUM("register", "login", "phone_verify", "reset_password"),
     allowNull: false,
     defaultValue: "phone_verify",
   },
