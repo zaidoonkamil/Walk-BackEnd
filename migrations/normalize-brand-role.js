@@ -110,9 +110,31 @@ async function ensureMissingBrandAccounts() {
   }
 }
 
+async function cleanupInactiveFeaturedBrands() {
+  try {
+    const staleItems = await sequelize.query(
+      `SELECT fb.id
+       FROM FeaturedBrands fb
+       LEFT JOIN Brands b ON fb.brandId = b.id
+       WHERE b.id IS NULL OR b.isActive = false`,
+      { type: QueryTypes.SELECT }
+    );
+    const ids = staleItems.map((item) => item.id).filter(Boolean);
+    if (!ids.length) return;
+    await sequelize.query(
+      "DELETE FROM FeaturedBrands WHERE id IN (:ids)",
+      { replacements: { ids } }
+    );
+    console.log(`Removed inactive featured brand links: ${ids.length}`);
+  } catch (error) {
+    console.warn("Inactive featured brand cleanup skipped:", error.message);
+  }
+}
+
 async function runStartupMigrations() {
   await normalizeBrandRole();
   await ensureMissingBrandAccounts();
+  await cleanupInactiveFeaturedBrands();
 }
 
 if (require.main === module) {
@@ -124,4 +146,9 @@ if (require.main === module) {
     });
 }
 
-module.exports = { normalizeBrandRole, ensureMissingBrandAccounts, runStartupMigrations };
+module.exports = {
+  normalizeBrandRole,
+  ensureMissingBrandAccounts,
+  cleanupInactiveFeaturedBrands,
+  runStartupMigrations,
+};

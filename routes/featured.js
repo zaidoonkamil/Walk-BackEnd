@@ -5,45 +5,58 @@ const { toBool, toNumber } = require("../utils/http");
 
 const router = express.Router();
 
-const publicIncludeItems = [{
+const includeItems = [{
   model: FeaturedBrand,
   as: "items",
   include: [{
     model: Brand,
     as: "brand",
-    where: { isActive: true },
-    required: true,
+    required: false,
     include: [{ model: BrandSocialLink, as: "socialLinks" }],
   }],
 }];
 
-const adminIncludeItems = [{
-  model: FeaturedBrand,
-  as: "items",
-  include: [{
-    model: Brand,
-    as: "brand",
-    where: { isActive: true },
-    required: true,
-    include: [{ model: BrandSocialLink, as: "socialLinks" }],
-  }],
-}];
+function onlyActiveBrands(sections) {
+  return sections
+    .map((section) => {
+      const json = section.toJSON ? section.toJSON() : section;
+      const items = Array.isArray(json.items)
+        ? json.items.filter((item) => item.brand && item.brand.isActive === true)
+        : [];
+      return { ...json, items };
+    })
+    .filter((section) => section.items.length > 0 || section.isActive === true);
+}
+
+async function pruneInactiveFeaturedBrands() {
+  const items = await FeaturedBrand.findAll({
+    include: [{ model: Brand, as: "brand", required: false }],
+  });
+  const staleIds = items
+    .filter((item) => !item.brand || item.brand.isActive !== true)
+    .map((item) => item.id);
+  if (staleIds.length) {
+    await FeaturedBrand.destroy({ where: { id: staleIds } });
+  }
+}
 
 router.get("/home/sections", async (req, res) => {
+  await pruneInactiveFeaturedBrands();
   const sections = await FeaturedSection.findAll({
     where: { isActive: true },
-    include: publicIncludeItems,
+    include: includeItems,
     order: [["sortOrder", "ASC"], [{ model: FeaturedBrand, as: "items" }, "sortOrder", "ASC"]],
   });
-  return res.json({ sections });
+  return res.json({ sections: onlyActiveBrands(sections) });
 });
 
 router.get("/admin/featured-sections", authenticate, authorize("admin"), async (req, res) => {
+  await pruneInactiveFeaturedBrands();
   const sections = await FeaturedSection.findAll({
-    include: adminIncludeItems,
+    include: includeItems,
     order: [["sortOrder", "ASC"]],
   });
-  return res.json({ sections });
+  return res.json({ sections: onlyActiveBrands(sections) });
 });
 
 router.post("/admin/featured-sections", authenticate, authorize("admin"), async (req, res) => {
