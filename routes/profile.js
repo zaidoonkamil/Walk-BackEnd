@@ -7,6 +7,7 @@ const { User, StepEntry, CouponPurchase, Coupon, Brand } = require("../models");
 const { authenticate } = require("../middlewares/auth");
 const { publicUser, toNumber } = require("../utils/http");
 const { validatePasswordStrength } = require("../utils/security");
+const { expireOldCouponPurchases } = require("../services/couponExpiry");
 
 const router = express.Router();
 
@@ -71,6 +72,7 @@ router.patch("/profile", authenticate, upload.single("image"), async (req, res) 
 });
 
 router.get("/profile/coupons", authenticate, async (req, res) => {
+  await expireOldCouponPurchases();
   const purchases = await CouponPurchase.findAll({
     where: { userId: req.user.id },
     include: [
@@ -88,7 +90,19 @@ router.get("/profile/coupons", authenticate, async (req, res) => {
       };
     }),
   );
-  return res.json({ purchases: purchasesWithQr });
+  const available = purchasesWithQr.filter((purchase) => purchase.status === "active");
+  const expired = purchasesWithQr.filter((purchase) => purchase.status !== "active");
+  return res.json({
+    summary: {
+      total: purchasesWithQr.length,
+      available: available.length,
+      expired: expired.length,
+      totalSavings: 0,
+    },
+    available,
+    expired,
+    purchases: purchasesWithQr,
+  });
 });
 
 router.get("/profile/month-stats", authenticate, async (req, res) => {
