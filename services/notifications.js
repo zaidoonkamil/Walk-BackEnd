@@ -1,5 +1,6 @@
 const { User, UserDevice } = require("../models");
 const NotificationLog = require("../models/notification_log");
+const { Op } = require("sequelize");
 const axios = require("axios");
 
 const sendNotificationToDevices = async (playerIds, message, title = "Notification") => {
@@ -19,7 +20,12 @@ const sendNotificationToDevices = async (playerIds, message, title = "Notificati
 };
 
 const sendNotificationToAll = async (message, title = "Notification") => {
-  const users = await User.findAll({ attributes: ["id"] });
+  const users = await User.findAll({
+    where: { role: { [Op.in]: ["user", "brand", "brand_owner"] } },
+    attributes: ["id"],
+  });
+  let sent = 0;
+  let failed = 0;
   for (const user of users) {
     const devices = await UserDevice.findAll({ where: { user_id: user.id } });
     const playerIds = devices.map(d => d.player_id);
@@ -35,6 +41,7 @@ const sendNotificationToAll = async (message, title = "Notification") => {
     if (playerIds.length === 0) {
       logData.status = "failed";
       await NotificationLog.create(logData);
+      failed += 1;
       continue;
     }
 
@@ -42,17 +49,21 @@ const sendNotificationToAll = async (message, title = "Notification") => {
       await sendNotificationToDevices(playerIds, message, title);
       logData.status = "sent";
       await NotificationLog.create(logData);
+      sent += 1;
     } catch (err) {
-      console.error(`❌ Error sending notification to user ${user.id}:`, err.message);
+      console.error(`Error sending notification to user ${user.id}:`, err.message);
       logData.status = "failed";
       await NotificationLog.create(logData);
+      failed += 1;
     }
   }
+  return { success: true, total: users.length, sent, failed };
 };
 
 const sendNotificationToRole = async (role, message, title = "Notification") => {
+  const roles = role === "brand" ? ["brand", "brand_owner"] : [role];
   const devices = await UserDevice.findAll({
-    include: [{ model: User, as: "user", where: { role } }]
+    include: [{ model: User, as: "user", where: { role: { [Op.in]: roles } } }]
   });
 
   const devicesByUser = {};
@@ -61,6 +72,8 @@ const sendNotificationToRole = async (role, message, title = "Notification") => 
     devicesByUser[d.user_id].push(d.player_id);
   });
 
+  let sent = 0;
+  let failed = 0;
   for (const [userId, playerIds] of Object.entries(devicesByUser)) {
     const logData = {
       title,
@@ -74,20 +87,21 @@ const sendNotificationToRole = async (role, message, title = "Notification") => 
       await sendNotificationToDevices(playerIds, message, title);
       logData.status = "sent";
       await NotificationLog.create(logData);
+      sent += 1;
     } catch (err) {
-      console.error(`❌ Error sending notification to user ${userId}:`, err.message);
+      console.error(`Error sending notification to user ${userId}:`, err.message);
       logData.status = "failed";
       await NotificationLog.create(logData);
+      failed += 1;
     }
   }
+  return { success: true, role, total: Object.keys(devicesByUser).length, sent, failed };
 };
 
 const sendNotificationToUser = async (userId, message, title = "Notification") => {
   const devices = await UserDevice.findAll({
     where: { user_id: userId }  
   });
-
-  console.log("🔎 Devices for user:", userId, devices.map(d => d.toJSON()));
 
   const playerIds = devices.map(d => d.player_id);
 
@@ -102,7 +116,7 @@ const sendNotificationToUser = async (userId, message, title = "Notification") =
   if (playerIds.length === 0) {
     logData.status = "failed";
     await NotificationLog.create(logData);
-    return { success: false, message: `لا توجد أجهزة للمستخدم ${userId}` };
+    return { success: false, message: `No devices for user ${userId}` };
   }
 
   try {
@@ -111,7 +125,7 @@ const sendNotificationToUser = async (userId, message, title = "Notification") =
     await NotificationLog.create(logData);
     return { success: true };
   } catch (err) {
-    console.error(`❌ Error sending notification to user ${userId}:`, err.message);
+    console.error(`Error sending notification to user ${userId}:`, err.message);
     logData.status = "failed";
     await NotificationLog.create(logData);
     return { success: false, error: err.message };

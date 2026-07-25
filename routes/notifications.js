@@ -47,13 +47,6 @@ router.post("/notification/user", authenticate, authorize("admin"), upload.none(
 
     const result = await sendNotificationToUser(user_id, message, title);
 
-    await NotificationLog.create({
-      target_type: "user",
-      target_value: user_id.toString(),
-      message,
-      title,
-    });
-
     return res.json({ success: true, result });
   } catch (error) {
     console.error("Send user notification error:", error);
@@ -74,6 +67,9 @@ router.post("/notification", authenticate, authorize("admin"), upload.none(), as
       result = await sendNotificationToAll(message, title);
     } else if (target_type === "role") {
       if (!target_value) return res.status(400).json({ error: "target_value is required" });
+      if (!["user", "brand"].includes(target_value)) {
+        return res.status(400).json({ error: "target_value must be user or brand" });
+      }
       result = await sendNotificationToRole(target_value, message, title);
     } else if (target_type === "user") {
       if (!target_value) return res.status(400).json({ error: "target_value is required" });
@@ -110,8 +106,10 @@ router.get("/notifications-log", authenticate, async (req, res) => {
 
     const offset = (Number(page) - 1) * Number(limit);
 
+    const where = isAdmin && !role && !user_id ? {} : { [Op.or]: orConditions };
+
     const { count, rows: logs } = await NotificationLog.findAndCountAll({
-      where: { [Op.or]: orConditions },
+      where,
       order: [["createdAt", "DESC"]],
       limit: Number(limit),
       offset,
