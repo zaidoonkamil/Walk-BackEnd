@@ -5,16 +5,34 @@ const { toBool, toNumber } = require("../utils/http");
 
 const router = express.Router();
 
-const includeItems = [{
+const publicIncludeItems = [{
   model: FeaturedBrand,
   as: "items",
-  include: [{ model: Brand, as: "brand", include: [{ model: BrandSocialLink, as: "socialLinks" }] }],
+  include: [{
+    model: Brand,
+    as: "brand",
+    where: { isActive: true },
+    required: true,
+    include: [{ model: BrandSocialLink, as: "socialLinks" }],
+  }],
+}];
+
+const adminIncludeItems = [{
+  model: FeaturedBrand,
+  as: "items",
+  include: [{
+    model: Brand,
+    as: "brand",
+    where: { isActive: true },
+    required: true,
+    include: [{ model: BrandSocialLink, as: "socialLinks" }],
+  }],
 }];
 
 router.get("/home/sections", async (req, res) => {
   const sections = await FeaturedSection.findAll({
     where: { isActive: true },
-    include: includeItems,
+    include: publicIncludeItems,
     order: [["sortOrder", "ASC"], [{ model: FeaturedBrand, as: "items" }, "sortOrder", "ASC"]],
   });
   return res.json({ sections });
@@ -22,7 +40,7 @@ router.get("/home/sections", async (req, res) => {
 
 router.get("/admin/featured-sections", authenticate, authorize("admin"), async (req, res) => {
   const sections = await FeaturedSection.findAll({
-    include: includeItems,
+    include: adminIncludeItems,
     order: [["sortOrder", "ASC"]],
   });
   return res.json({ sections });
@@ -55,7 +73,7 @@ router.patch("/admin/featured-sections/:id", authenticate, authorize("admin"), a
 
 router.post("/admin/featured-sections/:id/brands", authenticate, authorize("admin"), async (req, res) => {
   const section = await FeaturedSection.findByPk(req.params.id);
-  const brand = await Brand.findByPk(req.body.brandId);
+  const brand = await Brand.findOne({ where: { id: req.body.brandId, isActive: true } });
   if (!section || !brand) return res.status(404).json({ error: "Section or brand not found" });
 
   const [item] = await FeaturedBrand.findOrCreate({
