@@ -140,6 +140,56 @@ router.get("/coupons", async (req, res) => {
 });
 
 router.post("/admin/coupons", authenticate, authorize("admin"), (req, res) => createCoupon(req, res));
+
+router.get("/admin/coupons", authenticate, authorize("admin"), async (req, res) => {
+  const where = {};
+  if (req.query.brandId) where.brandId = toNumber(req.query.brandId);
+  if (req.query.isActive !== undefined) where.isActive = toBool(req.query.isActive, true);
+
+  const coupons = await Coupon.findAll({
+    where,
+    include: [{ model: Brand, as: "brand" }],
+    order: [["createdAt", "DESC"]],
+  });
+  return res.json({ coupons });
+});
+
+router.patch("/admin/coupons/:id", authenticate, authorize("admin"), async (req, res) => {
+  const coupon = await Coupon.findByPk(req.params.id, { include: [{ model: Brand, as: "brand" }] });
+  if (!coupon) return res.status(404).json({ error: "Coupon not found" });
+
+  if (req.body.brandId !== undefined) {
+    const brand = await Brand.findByPk(toNumber(req.body.brandId));
+    if (!brand) return res.status(404).json({ error: "Brand not found" });
+    coupon.brandId = brand.id;
+  }
+  if (req.body.title !== undefined) {
+    const title = String(req.body.title || "").trim();
+    if (!title) return res.status(400).json({ error: "Coupon title is required" });
+    coupon.title = title;
+  }
+  if (req.body.description !== undefined) coupon.description = req.body.description || null;
+  ["discountValue", "pointsCost", "quantity", "commissionPercent"].forEach((field) => {
+    if (req.body[field] !== undefined) coupon[field] = toNumber(req.body[field], coupon[field]);
+  });
+  if (coupon.discountValue <= 0) return res.status(400).json({ error: "Coupon discount value must be greater than zero" });
+  if (coupon.pointsCost <= 0) return res.status(400).json({ error: "Coupon points cost must be greater than zero" });
+  if (req.body.discountType !== undefined) coupon.discountType = req.body.discountType === "fixed" ? "fixed" : "percentage";
+  if (req.body.isActive !== undefined) coupon.isActive = toBool(req.body.isActive, coupon.isActive);
+  await coupon.save();
+
+  const fresh = await Coupon.findByPk(coupon.id, { include: [{ model: Brand, as: "brand" }] });
+  return res.json({ coupon: fresh });
+});
+
+router.delete("/admin/coupons/:id", authenticate, authorize("admin"), async (req, res) => {
+  const coupon = await Coupon.findByPk(req.params.id);
+  if (!coupon) return res.status(404).json({ error: "Coupon not found" });
+  coupon.isActive = false;
+  await coupon.save();
+  return res.json({ message: "Coupon disabled successfully" });
+});
+
 router.post("/brand-owner/coupons", authenticate, authorize("brand", "brand_owner"), (req, res) => createCoupon(req, res, req.user.id));
 
 router.get("/brand-owner/coupons", authenticate, authorize("brand", "brand_owner"), async (req, res) => {
