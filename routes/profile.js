@@ -11,6 +11,23 @@ const { expireOldCouponPurchases } = require("../services/couponExpiry");
 
 const router = express.Router();
 
+const DEFAULT_IQD_PER_POINT = 1000;
+
+function dateKey(date = new Date()) {
+  return date.toISOString().slice(0, 10);
+}
+
+function monthDayLabel(dateText) {
+  const date = new Date(`${dateText}T00:00:00`);
+  return new Intl.DateTimeFormat("ar", { weekday: "short" }).format(date);
+}
+
+function monthStatsRule() {
+  return {
+    iqdPerPoint: Number(process.env.IQD_PER_POINT || DEFAULT_IQD_PER_POINT),
+  };
+}
+
 router.get("/profile", authenticate, async (req, res) => {
   const user = await User.findByPk(req.user.id);
   if (!user) return res.status(404).json({ error: "User not found" });
@@ -107,23 +124,51 @@ router.get("/profile/coupons", authenticate, async (req, res) => {
 
 router.get("/profile/month-stats", authenticate, async (req, res) => {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+  const start = dateKey(startDate);
+  const end = dateKey(now);
+  const rule = monthStatsRule();
   const user = await User.findByPk(req.user.id);
   if (!user) return res.status(404).json({ error: "User not found" });
 
   const entries = await StepEntry.findAll({
-    where: { userId: req.user.id, date: { [Op.gte]: start } },
+    where: { userId: req.user.id, date: { [Op.between]: [start, end] } },
     order: [["date", "ASC"]],
   });
 
-  const totals = entries.reduce((acc, entry) => {
-    acc.steps += entry.steps;
-    acc.calories += entry.calories;
-    acc.distanceKm += entry.distanceKm;
-    acc.activeMinutes += entry.activeMinutes;
-    acc.points += entry.pointsEarned;
-    acc.iqd += entry.iqdEarned || 0;
-    acc.goalDays += entry.steps >= user.dailyStepGoal ? 1 : 0;
+  const byDate = new Map(entries.map((entry) => [entry.date, entry]));
+  const days = [];
+  for (const cursor = new Date(startDate); cursor <= now; cursor.setDate(cursor.getDate() + 1)) {
+    const date = dateKey(cursor);
+    const entry = byDate.get(date);
+    const steps = entry?.steps || 0;
+    const calories = entry?.calories || 0;
+    const distanceKm = entry?.distanceKm || Number((steps * 0.00075).toFixed(2));
+    const activeMinutes = entry?.activeMinutes || Math.round(steps / 100);
+    const pointsEarned = entry?.pointsEarned || 0;
+    days.push({
+      date,
+      label: date === end ? "اليوم" : monthDayLabel(date),
+      steps,
+      calories,
+      distanceKm,
+      activeMinutes,
+      pointsEarned,
+      iqdEarned: pointsEarned * rule.iqdPerPoint,
+      source: entry?.source || null,
+      sourceName: entry?.sourceName || null,
+      isTrusted: Boolean(entry?.isTrusted),
+    });
+  }
+
+  const totals = days.reduce((acc, day) => {
+    acc.steps += day.steps;
+    acc.calories += day.calories;
+    acc.distanceKm += day.distanceKm;
+    acc.activeMinutes += day.activeMinutes;
+    acc.points += day.pointsEarned;
+    acc.iqd += day.iqdEarned;
+    acc.goalDays += day.steps >= user.dailyStepGoal ? 1 : 0;
     return acc;
   }, { steps: 0, calories: 0, distanceKm: 0, activeMinutes: 0, points: 0, iqd: 0, goalDays: 0 });
 
@@ -134,9 +179,9 @@ router.get("/profile/month-stats", authenticate, async (req, res) => {
       ...totals,
       calories: Number(totals.calories.toFixed(2)),
       distanceKm: Number(totals.distanceKm.toFixed(2)),
-      averageSteps: entries.length ? Math.round(totals.steps / entries.length) : 0,
+      averageSteps: days.length ? Math.round(totals.steps / days.length) : 0,
     },
-    days: entries,
+    days,
   });
 });
 
