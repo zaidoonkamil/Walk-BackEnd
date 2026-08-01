@@ -383,6 +383,17 @@ router.patch("/admin/brands/:id", authenticate, authorize("admin"), upload.singl
     if (!brand.ownerId && String(req.body.password || "").trim()) {
       brand.ownerId = await resolveBrandOwner(req, brand.name, brand.locationText);
     }
+    if (brand.ownerId && String(req.body.password || "").trim()) {
+      const password = String(req.body.password || "");
+      const passwordError = validatePasswordStrength(password, "brand");
+      if (passwordError) return res.status(400).json({ error: passwordError });
+      const owner = await User.unscoped().findByPk(brand.ownerId);
+      if (owner) {
+        owner.password = await bcrypt.hash(password, 10);
+        owner.passwordChangedAt = new Date();
+        await owner.save();
+      }
+    }
     brand.latitude = nextLatitude;
     brand.longitude = nextLongitude;
     ["isActive", "isFeatured"].forEach((field) => {
