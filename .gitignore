@@ -11,6 +11,7 @@ node_modules/
 uploads/
 public/uploads/
 storage/
+.whatsapp_qr_auth/
 
 # Logs
 logs/

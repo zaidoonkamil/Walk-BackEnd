@@ -22,6 +22,8 @@ const adminRouter = require("./routes/admin");
 const featuredRouter = require("./routes/featured");
 const adsRouter = require("./routes/ads");
 const notificationsRouter = require("./routes/notifications");
+const whatsappRouter = require("./routes/whatsapp");
+const { startWhatsAppAutoInit } = require("./services/whatsappQrSender");
 
 const app = express();
 const server = http.createServer(app);
@@ -87,6 +89,7 @@ app.use("/", adminRouter);
 app.use("/", featuredRouter);
 app.use("/", adsRouter);
 app.use("/", notificationsRouter);
+app.use("/", whatsappRouter);
 
 app.use((error, req, res, next) => {
   console.error("Request error:", error);
@@ -132,6 +135,7 @@ async function start() {
     await sequelize.sync({ alter: process.env.DB_SYNC_ALTER !== "false" });
     await seedFeaturedSections();
     await expireOldCouponPurchases();
+    startWhatsAppAutoInit();
 
     setInterval(() => {
       expireOldCouponPurchases().catch((error) => {

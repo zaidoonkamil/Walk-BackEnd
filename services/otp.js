@@ -4,8 +4,10 @@ const crypto = require("crypto");
 const { Op } = require("sequelize");
 const { OtpVerification, User } = require("../models");
 const { getClientIp } = require("../utils/security");
+const { sendWhatsAppText } = require("./whatsappQrSender");
 
 const DEFAULT_PROVIDER = "whatsapp-telegram-sms";
+const WHATSAPP_QR_PROVIDER = "whatsapp_qr";
 
 function otpTtlMs() {
   return Number(process.env.OTP_TTL_MS || 5 * 60 * 1000);
@@ -127,12 +129,32 @@ async function sendViaOtpiq(phone, code) {
   };
 }
 
+async function sendViaWhatsAppQr(phone, code, purpose) {
+  if (isDryRun()) {
+    console.log(`OTP dry-run for ${phone}: ${code}`);
+    return { provider: "dry-run", messageId: null };
+  }
+
+  const purposeText = purpose === "reset_password" ? "إعادة تعيين كلمة المرور" : "التحقق";
+  const message = `رمز ${purposeText} الخاص بك هو: ${code}\nصالح لمدة ${Math.floor(otpTtlMs() / 60000)} دقائق.`;
+  const result = await sendWhatsAppText(phone, message);
+  return { provider: WHATSAPP_QR_PROVIDER, messageId: result.messageId };
+}
+
+async function sendOtpMessage(phone, code, purpose) {
+  const deliveryProvider = String(process.env.OTP_DELIVERY_PROVIDER || "otpiq").trim().toLowerCase();
+  if (deliveryProvider === WHATSAPP_QR_PROVIDER || deliveryProvider === "whatsapp") {
+    return sendViaWhatsAppQr(phone, code, purpose);
+  }
+  return sendViaOtpiq(phone, code);
+}
+
 async function createAndSendOtp({ req, phone, userId = null, purpose = "phone_verify" }) {
   await assertCanSendOtp(phone, purpose);
 
   const code = generateOtpCode();
   const codeHash = await bcrypt.hash(code, 10);
-  const sent = await sendViaOtpiq(phone, code);
+  const sent = await sendOtpMessage(phone, code, purpose);
   const otp = await OtpVerification.create({
     phone,
     userId,
