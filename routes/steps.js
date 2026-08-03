@@ -158,10 +158,6 @@ async function refreshUserTotals(user, transaction) {
     order: [["date", "DESC"]],
     transaction,
   });
-  const rewards = await StepReward.findAll({
-    where: { isActive: true },
-    order: [["sortOrder", "ASC"], ["requiredSteps", "ASC"], ["createdAt", "DESC"]],
-  });
 
   user.totalSteps = entries.reduce((sum, entry) => sum + entry.steps, 0);
   user.totalCalories = entries.reduce((sum, entry) => sum + entry.calories, 0);
@@ -307,6 +303,15 @@ router.get("/steps/dashboard", authenticate, async (req, res) => {
     activeMinutes: totals.activeMinutes + day.activeMinutes,
     goalDays: totals.goalDays + (day.steps >= user.dailyStepGoal ? 1 : 0),
   }), { steps: 0, calories: 0, distanceKm: 0, activeMinutes: 0, goalDays: 0 });
+  let rewards = [];
+  try {
+    rewards = await StepReward.findAll({
+      where: { isActive: true },
+      order: [["sortOrder", "ASC"], ["requiredSteps", "ASC"], ["createdAt", "DESC"]],
+    });
+  } catch (error) {
+    console.error("Step rewards dashboard fallback:", error);
+  }
 
   return res.json({
     points: user.points,
