@@ -513,7 +513,7 @@ router.patch("/brand-owner/brands/:id", authenticate, authorize("brand", "brand_
   const brand = await Brand.findOne({ where: { id: req.params.id, ownerId: req.user.id } });
   if (!brand) return res.status(404).json({ error: "Brand not found" });
 
-  ["description", "locationText", "websiteUrl", "phone"].forEach((field) => {
+  ["name", "description", "locationText", "websiteUrl", "phone"].forEach((field) => {
     if (req.body[field] !== undefined) brand[field] = req.body[field];
   });
   const nextLatitude = req.body.latitude !== undefined ? toNumber(req.body.latitude) : brand.latitude;
@@ -524,6 +524,15 @@ router.patch("/brand-owner/brands/:id", authenticate, authorize("brand", "brand_
   brand.longitude = nextLongitude;
   if (req.file) brand.image = req.file.filename;
   await brand.save();
+
+  if (brand.ownerId) {
+    const owner = await User.unscoped().findByPk(brand.ownerId);
+    if (owner && (owner.name !== brand.name || owner.location !== brand.locationText)) {
+      owner.name = brand.name;
+      owner.location = brand.locationText || null;
+      await owner.save();
+    }
+  }
 
   if (req.body.socialLinks !== undefined) {
     await BrandSocialLink.destroy({ where: { brandId: brand.id } });
