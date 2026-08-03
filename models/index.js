@@ -9,6 +9,7 @@ const BrandCategory = require("./brand_category");
 const Brand = require("./brand");
 const BrandSocialLink = require("./brand_social_link");
 const StepEntry = require("./step_entry");
+const StepReward = require("./step_reward");
 const PointTransaction = require("./point_transaction");
 const Coupon = require("./coupon");
 const CouponPurchase = require("./coupon_purchase");
@@ -97,6 +98,7 @@ module.exports = {
   Brand,
   BrandSocialLink,
   StepEntry,
+  StepReward,
   PointTransaction,
   Coupon,
   CouponPurchase,

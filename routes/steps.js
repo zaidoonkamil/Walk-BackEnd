@@ -1,9 +1,10 @@
 const express = require("express");
 const { Op } = require("sequelize");
 const sequelize = require("../config/db");
-const { User, StepEntry, PointTransaction } = require("../models");
-const { authenticate } = require("../middlewares/auth");
-const { toNumber } = require("../utils/http");
+const { User, StepEntry, PointTransaction, StepReward } = require("../models");
+const upload = require("../middlewares/uploads");
+const { authenticate, authorize } = require("../middlewares/auth");
+const { toBool, toNumber } = require("../utils/http");
 
 const router = express.Router();
 const DEFAULT_STEPS_PER_POINT = 5000;
@@ -26,6 +27,27 @@ function stepsRule() {
 function calculatePoints(steps) {
   const { stepsPerPoint, dailyPointsLimit } = stepsRule();
   return Math.min(dailyPointsLimit, Math.floor(Math.max(0, steps) / stepsPerPoint));
+}
+
+function uploadUrl(req, image) {
+  const text = String(image || "").trim();
+  if (!text) return null;
+  if (/^https?:\/\//i.test(text)) return text;
+  const baseUrl = (process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+  return `${baseUrl}/uploads/${text}`;
+}
+
+function serializeReward(req, reward, userSteps = 0) {
+  const json = reward.toJSON ? reward.toJSON() : reward;
+  const requiredSteps = Number(json.requiredSteps || 0);
+  const progress = requiredSteps > 0 ? Math.min(1, Math.max(0, userSteps) / requiredSteps) : 0;
+  return {
+    ...json,
+    imageUrl: uploadUrl(req, json.image),
+    requiredSteps,
+    progress,
+    unlocked: requiredSteps > 0 && userSteps >= requiredSteps,
+  };
 }
 
 function validateStepPayload({ steps, source, deviceId }) {
@@ -135,6 +157,10 @@ async function refreshUserTotals(user, transaction) {
     where: { userId: user.id },
     order: [["date", "DESC"]],
     transaction,
+  });
+  const rewards = await StepReward.findAll({
+    where: { isActive: true },
+    order: [["sortOrder", "ASC"], ["requiredSteps", "ASC"], ["createdAt", "DESC"]],
   });
 
   user.totalSteps = entries.reduce((sum, entry) => sum + entry.steps, 0);
@@ -316,7 +342,106 @@ router.get("/steps/dashboard", authenticate, async (req, res) => {
     },
     last7Days: days,
     achievements: buildAchievements({ user, todayEntry, weekTotals }),
+    rewards: rewards.map((reward) => serializeReward(req, reward, user.totalSteps || 0)),
   });
+});
+
+router.get("/step-rewards", authenticate, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.user.id);
+    const rewards = await StepReward.findAll({
+      where: { isActive: true },
+      order: [["sortOrder", "ASC"], ["requiredSteps", "ASC"], ["createdAt", "DESC"]],
+    });
+    return res.json({
+      rewards: rewards.map((reward) => serializeReward(req, reward, user?.totalSteps || 0)),
+    });
+  } catch (error) {
+    console.error("Error fetching step rewards:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/admin/step-rewards", authenticate, authorize("admin"), async (req, res) => {
+  try {
+    const rewards = await StepReward.findAll({
+      order: [["sortOrder", "ASC"], ["requiredSteps", "ASC"], ["createdAt", "DESC"]],
+    });
+    return res.json({ rewards: rewards.map((reward) => serializeReward(req, reward)) });
+  } catch (error) {
+    console.error("Error fetching admin step rewards:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/admin/step-rewards", authenticate, authorize("admin"), upload.single("image"), async (req, res) => {
+  try {
+    const name = String(req.body.name || "").trim();
+    const requiredSteps = Math.max(0, Math.round(toNumber(req.body.requiredSteps, 0)));
+    if (!name || requiredSteps <= 0) {
+      return res.status(400).json({ error: "name and requiredSteps are required" });
+    }
+
+    const reward = await StepReward.create({
+      name,
+      description: String(req.body.description || "").trim() || null,
+      requiredSteps,
+      image: req.file?.filename || null,
+      sortOrder: Math.round(toNumber(req.body.sortOrder, 0)),
+      isActive: req.body.isActive === undefined ? true : toBool(req.body.isActive),
+    });
+
+    return res.status(201).json({ message: "Reward created successfully", reward: serializeReward(req, reward) });
+  } catch (error) {
+    console.error("Error creating step reward:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.patch("/admin/step-rewards/:id", authenticate, authorize("admin"), upload.single("image"), async (req, res) => {
+  try {
+    const reward = await StepReward.findByPk(req.params.id);
+    if (!reward) return res.status(404).json({ error: "Reward not found" });
+
+    if (req.body.name !== undefined) {
+      const name = String(req.body.name || "").trim();
+      if (!name) return res.status(400).json({ error: "name is required" });
+      reward.name = name;
+    }
+    if (req.body.description !== undefined) {
+      reward.description = String(req.body.description || "").trim() || null;
+    }
+    if (req.body.requiredSteps !== undefined) {
+      const requiredSteps = Math.max(0, Math.round(toNumber(req.body.requiredSteps, 0)));
+      if (requiredSteps <= 0) return res.status(400).json({ error: "requiredSteps must be greater than zero" });
+      reward.requiredSteps = requiredSteps;
+    }
+    if (req.body.sortOrder !== undefined) {
+      reward.sortOrder = Math.round(toNumber(req.body.sortOrder, reward.sortOrder || 0));
+    }
+    if (req.body.isActive !== undefined) {
+      reward.isActive = toBool(req.body.isActive);
+    }
+    if (req.file) reward.image = req.file.filename;
+
+    await reward.save();
+    return res.json({ message: "Reward updated successfully", reward: serializeReward(req, reward) });
+  } catch (error) {
+    console.error("Error updating step reward:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.delete("/admin/step-rewards/:id", authenticate, authorize("admin"), async (req, res) => {
+  try {
+    const reward = await StepReward.findByPk(req.params.id);
+    if (!reward) return res.status(404).json({ error: "Reward not found" });
+    await reward.destroy();
+    return res.json({ message: "Reward deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting step reward:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
 module.exports = router;
